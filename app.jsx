@@ -50,6 +50,9 @@ export default function YNTKTS() {
         ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: #2D2D2D; }
         ::-webkit-scrollbar-thumb { background: #555753; border-radius: 2px; }
         ::selection { background: #E95678; color: #1C1C1C; }
+        @keyframes quack { 0%,100% { transform: translateY(0) rotate(0deg); } 25% { transform: translateY(-3px) rotate(-6deg); } 75% { transform: translateY(-1px) rotate(4deg); } }
+        .duck-bob { animation: quack 2.4s ease-in-out infinite; display: inline-block; cursor: default; }
+        .duck-bob:hover { animation: quack 0.5s ease-in-out infinite; }
       `}</style>
 
       {/* TITLE BAR — no bullet dots, italic tagline */}
@@ -70,7 +73,32 @@ export default function YNTKTS() {
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {/* SEARCH BAR — TOP, duck emoji */}
             <div style={{ borderBottom: "1px solid #3C3C3C", background: "#1C1C1C", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              <span style={{ fontSize: 15 }}>🦆</span>
+              <span className="duck-bob" title="quack">
+                <svg width="22" height="20" viewBox="0 0 22 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {/* body */}
+                  <ellipse cx="11" cy="13" rx="8.5" ry="6" fill="#F5C842"/>
+                  {/* wing shine */}
+                  <ellipse cx="9" cy="14" rx="4" ry="2.2" fill="#E8B830" opacity="0.6"/>
+                  {/* head */}
+                  <circle cx="16" cy="7.5" r="4.5" fill="#F5C842"/>
+                  {/* head shine */}
+                  <circle cx="15" cy="6" r="1.5" fill="#FAD85A" opacity="0.5"/>
+                  {/* eye white */}
+                  <circle cx="17.5" cy="6.5" r="1.4" fill="white"/>
+                  {/* pupil */}
+                  <circle cx="18" cy="6.5" r="0.7" fill="#1C1C1C"/>
+                  {/* eye shine */}
+                  <circle cx="18.3" cy="6.1" r="0.25" fill="white"/>
+                  {/* beak */}
+                  <path d="M20.5 8.5 L22 9.5 L20.5 10.5 Z" fill="#E8821A"/>
+                  <path d="M20.5 8.5 L22 9 L20.5 9.5 Z" fill="#F4A030"/>
+                  {/* blush */}
+                  <ellipse cx="16.5" cy="8.5" r="1.2" ry="0.7" fill="#F4907A" opacity="0.5"/>
+                  {/* water ripple */}
+                  <ellipse cx="11" cy="18.5" rx="7" ry="1" fill="#89DDFF" opacity="0.25"/>
+                  <ellipse cx="11" cy="19.2" rx="4.5" ry="0.6" fill="#89DDFF" opacity="0.15"/>
+                </svg>
+              </span>
               <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)}
                 placeholder="ketik nama binary..."
                 style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#D3D7CF", fontFamily: "inherit", fontSize: 13, caretColor: "#E95678" }}
@@ -153,8 +181,26 @@ export default function YNTKTS() {
 
             <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
               {tab === 0 && (<div>
+                {sel.tldr && (
+                  <div style={{ marginBottom: 20, padding: "12px 14px", background: "#1C1C1C", borderLeft: `3px solid ${RC[sel.r]}`, borderRadius: "0 4px 4px 0" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: RC[sel.r], marginBottom: 6, textTransform: "uppercase" }}>quick take</div>
+                    <div style={{ fontSize: 12.5, lineHeight: 1.75, color: "#D3D7CF" }}>{sel.tldr}</div>
+                  </div>
+                )}
                 <Sec t="abuse potential" c="#E95678"><P>{sel.abuse}</P></Sec>
-                <Sec t="red team usage" c="#B877DB"><P>{sel.red}</P></Sec>
+                <Sec t="red team usage" c="#B877DB">
+                  <P>{typeof sel.red === "object" ? sel.red.desc : sel.red}</P>
+                  {typeof sel.red === "object" && sel.red.cmds?.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      {sel.red.cmds.map((cmd, i) => (
+                        <div key={i} style={{ marginBottom: 8 }}>
+                          <pre style={{ fontSize: 11, lineHeight: 1.5, color: "#FAB795", whiteSpace: "pre-wrap", wordBreak: "break-all", padding: "8px 12px", background: "#1C1C1C", border: "1px solid #3C3C3C", borderRadius: 3, margin: 0 }}>{cmd.c}</pre>
+                          {cmd.n && <div style={{ fontSize: 10, color: "#7C7C7C", marginTop: 3, paddingLeft: 4 }}>{cmd.n}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Sec>
                 <Sec t="known legitimate use" c="#A8CC8C"><P>{sel.legit}</P></Sec>
               </div>)}
               {tab === 1 && (<div>
