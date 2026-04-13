@@ -132,7 +132,7 @@ export default function YNTKTS() {
       <div style={{ background:"#1C1C1C", borderBottom:"1px solid #3C3C3C", padding:"8px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
         <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
           <span style={{ color:"#E95678", fontWeight:700, fontSize:14, letterSpacing:1 }}>yntkts</span>
-          <span style={{ color:"#555753", fontSize:9, fontStyle:"italic", letterSpacing:"0.02em" }}>ya ndak tau kok tanya saya</span>
+          <span style={{ color:"#555753", fontSize:7, fontStyle:"italic", letterSpacing:"0.1" }}>(ya ndak tau kok tanya saya)</span>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
           <span style={{ color:"#555753", fontSize:10 }}>{DB.length} binaries</span>

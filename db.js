@@ -857,7 +857,7 @@ const DB = [
     ref:["https://attack.mitre.org/software/S0349/"] },
 
   // ┌──────────────────────────────────────────────┐
-  // │          CROSS-PLATFORM / LINUX               │
+  // │          CROSS-PLATFORM / LINUX              │
   // └──────────────────────────────────────────────┘
   { n:"curl", c:"utility", os:"cross", p:"/usr/bin/curl | C:\\Windows\\System32\\curl.exe",
     d:"Transfer data via various protocols", r:"MEDIUM",
@@ -1150,7 +1150,7 @@ const DB = [
     ref:["https://attack.mitre.org/techniques/T1562.004/"] },
 
   // ┌──────────────────────────────────────────────┐
-  // │                macOS                          │
+  // │                macOS                         │
   // └──────────────────────────────────────────────┘
   { n:"osascript", c:"lolbin", os:"macos", p:"/usr/bin/osascript",
     d:"Execute AppleScript/JXA", r:"HIGH",
