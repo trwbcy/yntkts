@@ -187,7 +187,7 @@ export default function YNTKTS() {
       {/* TITLE BAR */}
       <div style={{ background:"#1C1C1C", borderBottom:"1px solid #3C3C3C", padding:"8px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-          <img src="/img/rubber-duck.png" alt="yntkts" style={{ width:26, height:26, objectFit:"contain", filter:"brightness(0) invert(1)" }} />
+          <img src={`${import.meta.env.BASE_URL}img/rubber-duck.png`} alt="yntkts" style={{ width:26, height:26, objectFit:"contain", filter:"brightness(0) invert(1)" }} />
           <span style={{ color:"#E95678", fontWeight:700, fontSize:14, letterSpacing:1 }}>yntkts</span>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -204,7 +204,7 @@ export default function YNTKTS() {
             {/* SEARCH BAR */}
             <div style={{ borderBottom:"1px solid #3C3C3C", background:"#1C1C1C", padding:"10px 14px", display:"flex", flexDirection:"column", gap:8, flexShrink:0 }}>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <img src="/img/rubber-duck.png" alt="duck" style={{ width:22, height:22, objectFit:"contain", filter:"brightness(0) invert(1)" }} />
+                <img src={`${import.meta.env.BASE_URL}img/rubber-duck.png`} alt="duck" style={{ width:22, height:22, objectFit:"contain", filter:"brightness(0) invert(1)" }} />
                 {mode === "search" ? (
                   <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)}
                     placeholder="ketik nama binary..."
