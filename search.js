@@ -203,6 +203,142 @@ const CMDLINE_PATTERNS = {
     { re: /\*\s+\*\s+\*\s+\*\s+\*/i,             sev:"HIGH",     name:"Every-minute cron (*/min)",             mitre:"T1053.003", scenarios:["very frequent C2 callback","periodic beacon execution"] },
     { re: /curl|wget|nc\s|bash\s+-i/i,            sev:"CRITICAL", name:"Network tool in cron",                 mitre:"T1053.003", scenarios:["cron-based C2 poll","persistent reverse shell trigger"] },
   ],
+  "mimikatz": [
+    { re: /sekurlsa::logonpasswords/i,             sev:"CRITICAL", name:"sekurlsa::logonpasswords",             mitre:"T1003.001", scenarios:["plaintext credential dump from LSASS memory"] },
+    { re: /lsadump::sam/i,                        sev:"CRITICAL", name:"lsadump::sam",                         mitre:"T1003.002", scenarios:["SAM database dump — NTLM hash extraction"] },
+    { re: /lsadump::dcsync/i,                     sev:"CRITICAL", name:"lsadump::dcsync",                      mitre:"T1003.006", scenarios:["DCSync attack — impersonating DC to pull NTLM hashes"] },
+    { re: /kerberos::ptt/i,                       sev:"CRITICAL", name:"kerberos::ptt — Pass the Ticket",      mitre:"T1550.003", scenarios:["lateral movement via stolen Kerberos ticket"] },
+    { re: /privilege::debug/i,                    sev:"HIGH",     name:"privilege::debug",                     mitre:"T1134",     scenarios:["gaining SeDebugPrivilege — pre-requisite for most Mimikatz modules"] },
+    { re: /token::elevate/i,                      sev:"CRITICAL", name:"token::elevate",                       mitre:"T1134.001", scenarios:["token impersonation — escalating to SYSTEM"] },
+    { re: /coffee/i,                              sev:"HIGH",     name:"Mimikatz banner string",               mitre:"T1003",     scenarios:["mimikatz invoked — check full command chain"] },
+  ],
+  "psexec": [
+    { re: /-s\b/i,                                sev:"CRITICAL", name:"Run as SYSTEM (-s)",                   mitre:"T1569.002", scenarios:["SYSTEM shell via PsExec — lateral movement with max priv"] },
+    { re: /\\\\[\d.]+\\|\\\\[\w-]+\\/i,           sev:"HIGH",     name:"Remote target (UNC path)",             mitre:"T1021.002", scenarios:["lateral movement to remote host via SMB"] },
+    { re: /-accepteula/i,                         sev:"HIGH",     name:"-accepteula flag",                     mitre:"T1569.002", scenarios:["suppresses EULA dialog — common in automated attacker tooling"] },
+    { re: /-u\s+\S+\s+-p\s+\S+/i,               sev:"CRITICAL", name:"Explicit credentials (-u / -p)",       mitre:"T1078",     scenarios:["credential stuffing","use of stolen creds for lateral movement"] },
+    { re: /-d\b/i,                                sev:"MEDIUM",   name:"Background execution (-d)",            mitre:"T1569.002", scenarios:["detach from parent — stealthy process exec"] },
+  ],
+  "vssadmin": [
+    { re: /delete\s+shadows/i,                    sev:"CRITICAL", name:"Shadow copy deletion",                 mitre:"T1490",     scenarios:["pre-ransomware backup destruction","inhibit recovery"] },
+    { re: /create\s+shadow/i,                     sev:"HIGH",     name:"Shadow copy creation",                 mitre:"T1003.003", scenarios:["NTDS.dit copy via shadow — offline credential dump setup"] },
+    { re: /resize\s+shadowstorage/i,              sev:"HIGH",     name:"Shadow storage resize",                mitre:"T1490",     scenarios:["reducing shadow storage to prevent backups"] },
+    { re: /list\s+shadows/i,                      sev:"MEDIUM",   name:"List shadow copies",                   mitre:"T1082",     scenarios:["attacker enumerating available snapshots"] },
+  ],
+  "wevtutil.exe": [
+    { re: /cl\s|clear-log/i,                      sev:"CRITICAL", name:"Event log cleared (cl)",               mitre:"T1070.001", scenarios:["anti-forensics — covering tracks after compromise"] },
+    { re: /\/e:false/i,                           sev:"CRITICAL", name:"Log channel disabled",                 mitre:"T1562.002", scenarios:["disabling event logging to evade detection"] },
+    { re: /el\s*$/i,                              sev:"MEDIUM",   name:"Enumerating log channels",             mitre:"T1082",     scenarios:["attacker discovering what logs are available"] },
+    { re: /qe\s+Security|qe\s+System/i,          sev:"MEDIUM",   name:"Querying Security/System log",         mitre:"T1033",     scenarios:["attacker reviewing log for detection signatures"] },
+  ],
+  "ntdsutil": [
+    { re: /ifm|install\s+from\s+media/i,         sev:"CRITICAL", name:"IFM snapshot (NTDS.dit copy)",         mitre:"T1003.003", scenarios:["creating offline copy of NTDS.dit — full AD credential dump"] },
+    { re: /snapshot|activate\s+instance/i,        sev:"HIGH",     name:"NTDS snapshot",                        mitre:"T1003.003", scenarios:["snapshot-based NTDS.dit access without VSS abuse"] },
+    { re: /ac\s+i\s+ntds/i,                       sev:"CRITICAL", name:"Activate NTDS instance",               mitre:"T1003.003", scenarios:["mounting NTDS instance — prelude to credential extraction"] },
+  ],
+  "rubeus": [
+    { re: /kerberoast/i,                          sev:"CRITICAL", name:"Kerberoasting",                        mitre:"T1558.003", scenarios:["dumping TGS tickets for offline cracking","targeting service accounts"] },
+    { re: /asreproast/i,                          sev:"CRITICAL", name:"AS-REP Roasting",                      mitre:"T1558.004", scenarios:["attacking accounts with Kerberos pre-auth disabled"] },
+    { re: /ptt|pass.*ticket/i,                    sev:"CRITICAL", name:"Pass the Ticket",                      mitre:"T1550.003", scenarios:["injecting stolen Kerberos TGT for lateral movement"] },
+    { re: /dump/i,                                sev:"HIGH",     name:"Ticket dump",                          mitre:"T1558",     scenarios:["dumping in-memory Kerberos tickets"] },
+    { re: /monitor/i,                             sev:"HIGH",     name:"Ticket monitor mode",                  mitre:"T1558",     scenarios:["real-time interception of new Kerberos tickets"] },
+    { re: /s4u/i,                                 sev:"CRITICAL", name:"S4U delegation abuse",                 mitre:"T1134.001", scenarios:["Constrained Delegation abuse","impersonating arbitrary users"] },
+  ],
+  "sharphound": [
+    { re: /-c\s+all|--collectionmethod\s+all/i,  sev:"CRITICAL", name:"Full collection method",               mitre:"T1482",     scenarios:["BloodHound full AD mapping — complete attack path enumeration"] },
+    { re: /--zipfilename|--outputdirectory/i,     sev:"HIGH",     name:"Output file specified",                mitre:"T1482",     scenarios:["data collection for BloodHound ingestion"] },
+    { re: /--domain\s+/i,                         sev:"HIGH",     name:"Target domain specified",              mitre:"T1482",     scenarios:["cross-domain AD enumeration"] },
+    { re: /-c\s+dcom|session|loggedon/i,          sev:"HIGH",     name:"Session/loggedon enumeration",        mitre:"T1033",     scenarios:["mapping who is logged in where — used for targeting"] },
+  ],
+  "nmap": [
+    { re: /-sV\b|-sC\b/i,                         sev:"HIGH",     name:"Service/script scan",                  mitre:"T1046",     scenarios:["service version detection — vulnerability identification"] },
+    { re: /-p-\b|--top-ports/i,                   sev:"HIGH",     name:"Full port range scan",                 mitre:"T1046",     scenarios:["comprehensive port discovery on target"] },
+    { re: /--script.*vuln|--script.*exploit/i,    sev:"CRITICAL", name:"Vuln/exploit NSE script",              mitre:"T1190",     scenarios:["active exploitation attempt via Nmap scripts"] },
+    { re: /-O\b/i,                                sev:"MEDIUM",   name:"OS fingerprinting (-O)",               mitre:"T1082",     scenarios:["enumerating target OS for exploit selection"] },
+    { re: /-sn\b|--ping-scan/i,                   sev:"MEDIUM",   name:"Ping scan / host discovery",           mitre:"T1018",     scenarios:["live host discovery across subnet"] },
+    { re: /-Pn\b/i,                               sev:"MEDIUM",   name:"Skip host discovery (-Pn)",            mitre:"T1046",     scenarios:["scanning without ping — evading ICMP-based detection"] },
+  ],
+  "ssh": [
+    { re: /-R\s+\d+/i,                            sev:"CRITICAL", name:"Reverse tunnel (-R)",                  mitre:"T1572",     scenarios:["reverse SSH tunnel to C2","port forwarding to bypass firewall"] },
+    { re: /-L\s+\d+/i,                            sev:"HIGH",     name:"Local port forward (-L)",              mitre:"T1572",     scenarios:["tunneling traffic through SSH to reach internal services"] },
+    { re: /-D\s+\d+/i,                            sev:"HIGH",     name:"Dynamic SOCKS proxy (-D)",             mitre:"T1572",     scenarios:["SOCKS5 proxy for tunneling all traffic through compromised host"] },
+    { re: /-o\s+StrictHostKeyChecking=no/i,        sev:"MEDIUM",   name:"Host key checking disabled",          mitre:"T1021.004", scenarios:["automated/non-interactive lateral movement","MITM blind acceptance"] },
+    { re: /-i\s+\/tmp|ProxyJump/i,                sev:"HIGH",     name:"Key from temp / ProxyJump",            mitre:"T1021.004", scenarios:["key from staging area","multi-hop lateral movement"] },
+    { re: /\/bin\/sh|\/bin\/bash|bash\s+-i/i,     sev:"CRITICAL", name:"Shell forced via SSH",                 mitre:"T1059.004", scenarios:["forced command execution on remote host"] },
+  ],
+  "chisel": [
+    { re: /server.*--reverse/i,                   sev:"CRITICAL", name:"Reverse server mode",                  mitre:"T1572",     scenarios:["C2 server accepting reverse tunnels from compromised hosts"] },
+    { re: /client.*R:/i,                          sev:"CRITICAL", name:"Reverse remote forward (R:)",          mitre:"T1572",     scenarios:["tunneling C2 traffic from victim back to attacker"] },
+    { re: /socks/i,                               sev:"HIGH",     name:"SOCKS proxy mode",                     mitre:"T1572",     scenarios:["all-traffic proxy through compromised host for lateral movement"] },
+    { re: /:\d{4,5}\s+/i,                         sev:"HIGH",     name:"Port forwarding",                      mitre:"T1090.001", scenarios:["relaying traffic through firewall","pivot to internal network"] },
+  ],
+  "responder": [
+    { re: /-I\s+\w+/i,                            sev:"CRITICAL", name:"Interface specified (-I)",             mitre:"T1557.001", scenarios:["LLMNR/NBT-NS poisoning to capture NetNTLM hashes"] },
+    { re: /--lm\b|-l\b/i,                         sev:"CRITICAL", name:"LM hash capture mode",                 mitre:"T1557.001", scenarios:["downgrading auth to capture weaker LM hashes"] },
+    { re: /-w\b/i,                                sev:"HIGH",     name:"WPAD rogue proxy (-w)",                mitre:"T1557.001", scenarios:["WPAD attack to intercept browser proxy traffic"] },
+    { re: /-f\b/i,                                sev:"HIGH",     name:"Fingerprint mode (-f)",                mitre:"T1040",     scenarios:["passive fingerprinting of hosts on network"] },
+  ],
+  "crackmapexec": [
+    { re: /--sam\b/i,                             sev:"CRITICAL", name:"SAM dump (--sam)",                     mitre:"T1003.002", scenarios:["remote SAM credential dump via SMB"] },
+    { re: /--lsa\b/i,                             sev:"CRITICAL", name:"LSA secrets dump (--lsa)",             mitre:"T1003.004", scenarios:["extracting LSA secrets — service account creds"] },
+    { re: /--ntds\b/i,                            sev:"CRITICAL", name:"NTDS dump (--ntds)",                   mitre:"T1003.003", scenarios:["full AD credential dump from Domain Controller"] },
+    { re: /-x\s+\S+|-X\s+\S+/i,                  sev:"CRITICAL", name:"Remote command execution (-x/-X)",     mitre:"T1021.002", scenarios:["cmd/PS execution on remote host via CME"] },
+    { re: /--shares\b/i,                          sev:"MEDIUM",   name:"Share enumeration (--shares)",         mitre:"T1135",     scenarios:["mapping accessible SMB shares for data access"] },
+    { re: /--pass-pol\b/i,                        sev:"MEDIUM",   name:"Password policy enum",                 mitre:"T1201",     scenarios:["checking lockout policy before brute force"] },
+  ],
+  "netexec": [
+    { re: /--sam\b/i,                             sev:"CRITICAL", name:"SAM dump (--sam)",                     mitre:"T1003.002", scenarios:["remote SAM credential dump — netexec (CME successor)"] },
+    { re: /--ntds\b/i,                            sev:"CRITICAL", name:"NTDS dump (--ntds)",                   mitre:"T1003.003", scenarios:["full domain credential dump from DC"] },
+    { re: /-x\s+\S+|-X\s+\S+/i,                  sev:"CRITICAL", name:"Remote command execution",             mitre:"T1021.002", scenarios:["lateral movement via remote command exec"] },
+    { re: /--local-auth/i,                        sev:"HIGH",     name:"Local auth mode",                      mitre:"T1078.003", scenarios:["spraying local admin credentials across hosts"] },
+  ],
+  "kerbrute": [
+    { re: /userenum\b/i,                          sev:"HIGH",     name:"User enumeration",                     mitre:"T1087.002", scenarios:["enumerating valid domain users via Kerberos AS-REQ — no auth required"] },
+    { re: /passwordspray\b/i,                     sev:"CRITICAL", name:"Password spraying",                    mitre:"T1110.003", scenarios:["low-and-slow password spray against AD accounts"] },
+    { re: /bruteuser\b|bruteforce\b/i,            sev:"CRITICAL", name:"Brute force",                          mitre:"T1110.001", scenarios:["credential brute force against specific account"] },
+    { re: /--dc\s+|--domain\s+/i,                sev:"HIGH",     name:"Target DC/domain specified",           mitre:"T1078",     scenarios:["targeted Kerberos attack against specific domain"] },
+  ],
+  "find": [
+    { re: /-perm\s+-4000|-perm\s+u=s/i,          sev:"HIGH",     name:"SUID binary search",                   mitre:"T1548.001", scenarios:["privilege escalation recon — finding SUID binaries"] },
+    { re: /-exec\s+\S+/i,                         sev:"HIGH",     name:"find -exec (command execution)",       mitre:"T1059.004", scenarios:["GTFOBins abuse — executing commands via find -exec"] },
+    { re: /-name\s+.*\.key|password|\.pem|\.pfx/i, sev:"HIGH",   name:"Credential file search",               mitre:"T1552.001", scenarios:["searching for private keys, passwords, certificates"] },
+    { re: /\/tmp|\/dev\/shm/i,                    sev:"MEDIUM",   name:"Searching temp paths",                 mitre:"T1083",     scenarios:["locating staged payloads in temp directories"] },
+  ],
+  "iptables": [
+    { re: /-F\b|--flush/i,                        sev:"CRITICAL", name:"Flush all rules (-F)",                 mitre:"T1562.004", scenarios:["wiping all firewall rules — exposing host to network"] },
+    { re: /-P\s+INPUT\s+ACCEPT|-P\s+FORWARD\s+ACCEPT/i, sev:"CRITICAL", name:"Default ACCEPT policy",         mitre:"T1562.004", scenarios:["allow all traffic by default — defense evasion"] },
+    { re: /-A\s+INPUT.*--dport\s+\d+.*ACCEPT/i,  sev:"HIGH",     name:"Inbound port rule added",              mitre:"T1562.004", scenarios:["opening inbound port — C2 listener access"] },
+    { re: /-j\s+REDIRECT.*--to-port/i,            sev:"HIGH",     name:"Traffic redirect rule",                mitre:"T1090.001", scenarios:["intercepting or redirecting traffic"] },
+  ],
+  "launchctl": [
+    { re: /load\s+/i,                             sev:"HIGH",     name:"LaunchAgent/Daemon load",              mitre:"T1543.001", scenarios:["loading plist for persistence on macOS"] },
+    { re: /start\s+com\.|kickstart/i,             sev:"MEDIUM",   name:"Starting service",                     mitre:"T1543.004", scenarios:["starting custom LaunchDaemon — persistence check"] },
+    { re: /\/tmp\/|\/var\/tmp\//i,                sev:"CRITICAL", name:"Service from temp path",               mitre:"T1543.001", scenarios:["launching payload from temp — dropped binary persistence"] },
+    { re: /disable\s+/i,                          sev:"HIGH",     name:"Disabling service",                    mitre:"T1562",     scenarios:["disabling security tools (EDR, syslog, etc.)"] },
+  ],
+  "osascript": [
+    { re: /-e\s+["']/i,                           sev:"HIGH",     name:"Inline AppleScript (-e)",              mitre:"T1059.002", scenarios:["one-liner execution — phishing payload","ClickFix macOS variant"] },
+    { re: /do\s+shell\s+script/i,                 sev:"HIGH",     name:"Shell command via AppleScript",        mitre:"T1059.002", scenarios:["executing shell commands through AppleScript layer","macOS LOLBin chain"] },
+    { re: /with\s+administrator\s+privileges/i,   sev:"CRITICAL", name:"Admin priv request",                   mitre:"T1548",     scenarios:["privilege escalation via AppleScript sudo prompt"] },
+    { re: /display\s+dialog.*password/i,          sev:"CRITICAL", name:"Password phishing dialog",             mitre:"T1056.002", scenarios:["fake macOS password prompt to harvest credentials"] },
+  ],
+  "net.exe": [
+    { re: /user\s+\S+\s+\S+\s+\/add/i,           sev:"CRITICAL", name:"Creating local user",                  mitre:"T1136.001", scenarios:["backdoor account creation"] },
+    { re: /localgroup\s+administrators\s+.*\/add/i, sev:"CRITICAL", name:"Adding to Administrators",          mitre:"T1098",     scenarios:["privilege escalation — adding user to local admin group"] },
+    { re: /use\s+\\\\/i,                          sev:"HIGH",     name:"SMB share mapping (net use)",          mitre:"T1021.002", scenarios:["lateral movement via SMB","mapping attacker share to drop tools"] },
+    { re: /view\s+\\\\/i,                         sev:"MEDIUM",   name:"Remote share enumeration",             mitre:"T1135",     scenarios:["discovering accessible SMB shares on remote host"] },
+    { re: /group\s+.*\/domain/i,                  sev:"MEDIUM",   name:"Domain group enumeration",             mitre:"T1069.002", scenarios:["AD recon — mapping privileged domain groups"] },
+  ],
+  "nltest": [
+    { re: /\/dclist:|\/domain_trusts/i,           sev:"HIGH",     name:"Domain/trust enumeration",             mitre:"T1482",     scenarios:["AD recon — listing DC and trust relationships","BloodHound precursor"] },
+    { re: /\/server:/i,                           sev:"MEDIUM",   name:"Remote server target",                 mitre:"T1033",     scenarios:["querying specific domain controller"] },
+    { re: /\/trusted_domains/i,                   sev:"HIGH",     name:"Trust mapping",                        mitre:"T1482",     scenarios:["identifying forest trusts for cross-domain attack paths"] },
+  ],
+  "dsquery": [
+    { re: /\*\s+.*-limit\s+0/i,                  sev:"HIGH",     name:"Unlimited LDAP query",                 mitre:"T1087.002", scenarios:["dumping entire AD object list — mass account enumeration"] },
+    { re: /group.*-name.*admin/i,                 sev:"HIGH",     name:"Admin group query",                    mitre:"T1069.002", scenarios:["identifying privileged groups in AD"] },
+    { re: /computer.*-limit/i,                    sev:"MEDIUM",   name:"Computer object enumeration",          mitre:"T1018",     scenarios:["mapping all computer objects for target selection"] },
+  ],
 };
 
 // generic patterns applied to ALL binaries
@@ -278,13 +414,14 @@ export function detectCommand(cmdline, db) {
   };
 }
 
-export function genClosureTemplate(b) {
+export function genClosureTemplate(b, cmdline = "") {
+  const cmdLineValue = cmdline.trim() ? cmdline.trim() : "[COMMAND LINE]";
   return `Alert ter-trigger dari [NAMA LOG SOURCE] yang mencatat eksekusi ${b.n} pada asset [IP/HOSTNAME ASSET]
 
 **Key Findings:**
 - Source IP: [IP]
 - Process: ${b.p}
-- Command Line: [COMMAND LINE]
+- Command Line: ${cmdLineValue}
 - Parent Process: [PARENT PROCESS]
 - Response/Action: [BLOCKED/DETECTED/ALLOWED]
 - Timestamp: [TANGGAL WAKTU WIB]
