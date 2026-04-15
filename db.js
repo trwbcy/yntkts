@@ -739,7 +739,7 @@ const DB = [
     },
     legit:"NONE production. Only authorized pentest.",
     tips:["Binary bisa renamed! CEK HASH","Cek sekurlsa::logonpasswords? lsadump::dcsync?","Cek parent — bagaimana masuk system?","Cek lsass access (Event ID 10)","Cek SeDebugPrivilege enabled","Cek lateral movement post-extraction","THIS IS ALWAYS AN INCIDENT"],
-    detect:"Detect by hash, YARA, cmdline patterns, lsass access.",
+    detect:"Event 10 Sysmon (lsass handle open — GrantedAccess 0x1010/0x1410). Event 4688 process creation dengan nama mimikatz atau renamed hash. YARA rule di memory/disk. Cmdline patterns: sekurlsa, lsadump, kerberos::golden. Alert SeDebugPrivilege enable di non-system context. Korelasi dengan lateral movement segera setelah eksekusi.",
     ref:["https://attack.mitre.org/software/S0002/"] },
 
   { n:"psexec.exe", c:"offensive", os:"win", p:"N/A (Sysinternals)",
@@ -759,7 +759,7 @@ const DB = [
     },
     legit:"IT remote management. Sering di-abuse — always investigate.",
     tips:["Cek target host","Cek credentials /u flag","Cek command di remote","Cek PSEXESVC.exe service creation","Cek named pipe \\\\pipe\\psexecsvc","Cek multiple targets (mass)","Korelasi auth logs target"],
-    detect:"Alert PSEXESVC service. Monitor pipe psexecsvc. Detect hash/name.",
+    detect:"Event 7045 (service install) dengan ServiceName PSEXESVC. Named pipe creation: \\\\pipe\\psexecsvc (Event 18 Sysmon). Event 4624 logon Type 3 (network) + 4672 (privilege) dari source IP. SMB file copy ke ADMIN$ sebelum service creation. Cek target host auth logs — psexec muncul dari dua sisi (source dan target).",
     ref:["https://attack.mitre.org/techniques/T1569/002/"] },
 
   { n:"procdump.exe", c:"offensive", os:"win", p:"N/A (Sysinternals)",
@@ -777,7 +777,7 @@ const DB = [
     },
     legit:"App debugging. Targeting lsass = ALWAYS suspicious.",
     tips:["Cek target — lsass? CRITICAL!","Cek output file location","Cek dump exfiltration","Cek parent + user context","Cek -ma flag (full dump)"],
-    detect:"Alert procdump targeting lsass.",
+    detect:"Event 10 Sysmon (ProcessAccess lsass.exe dengan GrantedAccess 0x1fffff atau 0x1010). Event 4656/4663 object access ke lsass handle. Alert cmdline mengandung 'lsass' + '.dmp'. Monitor .dmp file creation di direktori non-standard. Meski signed Microsoft, procdump targeting lsass = credential theft — binary name jangan jadi faktor penentu.",
     ref:["https://attack.mitre.org/techniques/T1003/001/"] },
 
   { n:"comsvcs.dll", c:"offensive", os:"win", p:"C:\\Windows\\System32\\comsvcs.dll",
@@ -794,7 +794,7 @@ const DB = [
     },
     legit:"COM+ infra. MiniDump = NEVER legitimate.",
     tips:["Cek comsvcs.dll via rundll32","Cek MiniDump function","Cek target PID — lsass?","Cek output file","TREAT AS CREDENTIAL THEFT"],
-    detect:"Alert rundll32 + comsvcs.dll + MiniDump.",
+    detect:"Cmdline detection: rundll32.exe + comsvcs.dll + MiniDump string dalam satu commandline. Event 10 Sysmon — SourceProcess rundll32.exe, TargetImage lsass.exe. Monitor .dmp file creation. PowerShell Event 4104 jika dijalankan via PS one-liner. Ini adalah native Windows technique — hash-based detection tidak cukup, fokus ke behavioral.",
     ref:["https://lolbas-project.github.io/lolbas/Libraries/Comsvcs/"] },
 
   { n:"rubeus.exe", c:"offensive", os:"win", p:"N/A (offensive tool)",
@@ -814,7 +814,7 @@ const DB = [
     },
     legit:"NONE. Only pentest.",
     tips:["Bisa renamed — CEK HASH + behavior","Cek Kerberos ticket requests (4769)","Cek TGS RC4 encryption = Kerberoasting","Cek parent process","ALWAYS INCIDENT"],
-    detect:"Monitor TGS with RC4. Detect hash/YARA.",
+    detect:"Event 4769 (TGS request) dengan TicketEncryptionType 0x17 (RC4) dalam volume tinggi dari single account = kerberoasting. Event 4768 + 4771 spike dari single source IP. Event 4624 logon anomaly setelah ticket harvest. Alert binary via hash/YARA. Monitor AS-REQ/TGS traffic ke DC:88 dari non-DC hosts. Renamed binary tetap terdeteksi via behavior.",
     ref:["https://attack.mitre.org/techniques/T1558/003/"] },
 
   { n:"sharphound.exe", c:"offensive", os:"win", p:"N/A (BloodHound collector)",
@@ -834,7 +834,7 @@ const DB = [
     },
     legit:"NONE production. Only authorized assessment.",
     tips:["Bisa renamed — cek behavior","Cek massive LDAP queries","Cek SMB session enum","Cek output .json/.zip","ALWAYS INCIDENT"],
-    detect:"Monitor massive LDAP queries. Detect hash/behavior.",
+    detect:"Event 1644 di DC (Expensive/Inefficient LDAP Queries) — SharpHound trigger ini dalam jumlah besar. Monitor LDAP queries dengan filter yang broad (objectClass=* atau objectCategory=person tanpa scope limit). Cek SMB session enumeration via Event 4624/4634 spike. Alert output file .zip atau .json dengan naming pattern BloodHound. Binary detection via hash/YARA — renamed binary tetap terdeteksi dari LDAP query pattern.",
     ref:["https://attack.mitre.org/software/S0521/"] },
 
   { n:"lazagne.exe", c:"offensive", os:"win", p:"N/A (offensive tool)",
@@ -853,7 +853,7 @@ const DB = [
     },
     legit:"NONE. Only pentest.",
     tips:["Bisa renamed — cek behavior/hash","Cek access browser password stores","Cek Windows Credential Manager","ALWAYS INCIDENT"],
-    detect:"Detect hash/behavior. Monitor credential store access.",
+    detect:"Binary detection via hash/YARA (sering di-rename). Monitor access ke DPAPI blobs, Windows Credential Manager (Event 4648, vault access). Alert browser credential store access (Chrome Login Data, Firefox key4.db). Cek output files — lazagne biasanya dump ke stdout atau file di temp. Korelasi dengan process tree: siapa yang spawn lazagne?",
     ref:["https://attack.mitre.org/software/S0349/"] },
 
   // ┌──────────────────────────────────────────────┐
@@ -2011,7 +2011,7 @@ const DB = [
     },
     legit:"NONE production. Only authorized pentest.",
     tips:["Detect by binary name/hash (cme, crackmapexec, netexec)","Cek mass SMB auth failures (spray pattern)","Cek SMB connections dari single source ke banyak hosts","Cek Event ID 4625 (failed logon) spike","Cek apakah hash vs password auth","ALWAYS INCIDENT jika ditemukan"],
-    detect:"Alert spray pattern (Event 4625 spike). Alert mass SMB connections dari single source. Detect binary hash.",
+    detect:"Event 4625 (failed logon) spike dari single source IP dalam waktu singkat = spray pattern. Event 4648 (explicit credential logon) ke banyak hosts. Netflow: single source → banyak destination port 445/5985/389. SMB session spike di DC. Detect binary via hash (cme/netexec sering di-rename). Alert host yang tiba-tiba enumerate banyak SMB shares.",
     ref:["https://attack.mitre.org/techniques/T1021/002/"] },
 
   { n:"kerbrute", c:"offensive", os:"cross", p:"/usr/local/bin/kerbrute (linux) / kerbrute.exe (win)",
@@ -2071,7 +2071,7 @@ const DB = [
     },
     legit:"NONE production. Only authorized pentest/research.",
     tips:["Detect keberadaan msfvenom binary","Cek output files — .exe, .dll, .ps1, .elf yang baru dibuat","Cek network traffic ke port 4444 (default Metasploit)","Cek apakah ada handler (msfconsole) di jaringan","Scan files baru yang dibuat setelah msfvenom exec","ALWAYS INCIDENT jika ditemukan"],
-    detect:"Alert msfvenom binary. Scan output files. Alert generic Meterpreter patterns di AV.",
+    detect:"Alert msfvenom binary di endpoint (bukan pentest workstation). Monitor file creation: .exe/.dll/.elf baru + timestamp + size consistent dengan shellcode. Network: outbound ke port 4444/4445/8443/8080 setelah file creation = Meterpreter callback. Meterpreter pattern di memory/network: staged payload HTTP GET dengan URI format /AAAA. YARA rule untuk metasploit shellcode stubs efektif.",
     ref:["https://attack.mitre.org/techniques/T1587/001/"] },
 
   // ┌──────────────────────────────────────────────┐

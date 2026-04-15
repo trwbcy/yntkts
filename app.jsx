@@ -171,9 +171,6 @@ export default function YNTKTS() {
         ::-webkit-scrollbar { width:5px; } ::-webkit-scrollbar-track { background:#2D2D2D; }
         ::-webkit-scrollbar-thumb { background:#555753; border-radius:2px; }
         ::selection { background:#E95678; color:#1C1C1C; }
-        @keyframes quack { 0%,100%{transform:translateY(0) rotate(0deg)} 25%{transform:translateY(-3px) rotate(-6deg)} 75%{transform:translateY(-1px) rotate(4deg)} }
-        .duck-bob { animation:quack 2.4s ease-in-out infinite; display:inline-block; cursor:default; }
-        .duck-bob:hover { animation:quack 0.5s ease-in-out infinite; }
         .tag-pill { display:inline-block; padding:1px 6px; border-radius:2px; font-size:9px; font-weight:600; letter-spacing:0.04em; border:1px solid; margin-right:4px; margin-top:3px; }
         .filt-btn { padding:3px 10px; border-radius:2px; font-size:9px; font-weight:600; letter-spacing:0.06em; cursor:pointer; border:1px solid #3C3C3C; color:#555753; background:transparent; font-family:inherit; transition:all 0.1s; }
         .filt-btn:hover { border-color:#E95678; color:#E95678; }
@@ -207,22 +204,7 @@ export default function YNTKTS() {
             {/* SEARCH BAR */}
             <div style={{ borderBottom:"1px solid #3C3C3C", background:"#1C1C1C", padding:"10px 14px", display:"flex", flexDirection:"column", gap:8, flexShrink:0 }}>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <span className="duck-bob" title="quack">
-                  <svg width="22" height="20" viewBox="0 0 22 20" fill="none">
-                    <ellipse cx="11" cy="13" rx="8.5" ry="6" fill="#F5C842"/>
-                    <ellipse cx="9" cy="14" rx="4" ry="2.2" fill="#E8B830" opacity="0.6"/>
-                    <circle cx="16" cy="7.5" r="4.5" fill="#F5C842"/>
-                    <circle cx="15" cy="6" r="1.5" fill="#FAD85A" opacity="0.5"/>
-                    <circle cx="17.5" cy="6.5" r="1.4" fill="white"/>
-                    <circle cx="18" cy="6.5" r="0.7" fill="#1C1C1C"/>
-                    <circle cx="18.3" cy="6.1" r="0.25" fill="white"/>
-                    <path d="M20.5 8.5 L22 9.5 L20.5 10.5 Z" fill="#E8821A"/>
-                    <path d="M20.5 8.5 L22 9 L20.5 9.5 Z" fill="#F4A030"/>
-                    <ellipse cx="16.5" cy="8.5" rx="1.2" ry="0.7" fill="#F4907A" opacity="0.5"/>
-                    <ellipse cx="11" cy="18.5" rx="7" ry="1" fill="#89DDFF" opacity="0.25"/>
-                    <ellipse cx="11" cy="19.2" rx="4.5" ry="0.6" fill="#89DDFF" opacity="0.15"/>
-                  </svg>
-                </span>
+                <img src="/img/rubber-duck.png" alt="duck" style={{ width:22, height:22, objectFit:"contain", filter:"brightness(0) invert(1)" }} />
                 {mode === "search" ? (
                   <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)}
                     placeholder="ketik nama binary..."
@@ -386,7 +368,7 @@ export default function YNTKTS() {
                         {sel.red.cmds.map((cmd, i) => (
                           <div key={i} style={{ paddingBottom: i < sel.red.cmds.length - 1 ? 8 : 0, marginBottom: i < sel.red.cmds.length - 1 ? 8 : 0, borderBottom: i < sel.red.cmds.length - 1 ? "1px solid #2A2A2A" : "none" }}>
                             <pre style={{ fontSize:11, lineHeight:1.4, color:"#FAB795", whiteSpace:"pre-wrap", wordBreak:"break-all", margin:0 }}>{cmd.c}</pre>
-                            {cmd.n && <div style={{ fontSize:10, color:"#555753", marginTop:3 }}>{cmd.n}</div>}
+                            {cmd.n && <div style={{ fontSize:10, color:"#555753", marginTop:3, paddingLeft:10 }}>{cmd.n}</div>}
                           </div>
                         ))}
                       </div>
@@ -549,9 +531,9 @@ function DetectionResult({ d, onSelect }) {
         </div>
       ))}
       {d.binary && (
-        <div style={{ marginTop:12, padding:"8px 12px", background:"#252525", borderRadius:3, border:"1px solid #3C3C3C", fontSize:10, color:"#555753" }}>
-          lihat intel lengkap →{" "}
-          <span onClick={() => onSelect(d.binary)} style={{ color:"#89DDFF", cursor:"pointer" }}>{d.binary.n}</span>
+        <div onClick={() => onSelect(d.binary)} style={{ marginTop:12, padding:"9px 14px", background:"#1C1C1C", borderRadius:3, border:"1px solid #3C3C3C", fontSize:11, color:"#89DDFF", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <span>buka intel <span style={{ fontWeight:700 }}>{d.binary.n}</span></span>
+          <span style={{ color:"#3C3C3C", fontSize:13 }}>→</span>
         </div>
       )}
     </div>
@@ -568,5 +550,5 @@ function Sec({ t, c, children }) {
   );
 }
 function P({ children }) {
-  return <div style={{ fontSize:12, lineHeight:1.2, color:"#D3D7CF" }}>{children}</div>;
+  return <div style={{ fontSize:12, lineHeight:1.2, color:"#D3D7CF", paddingLeft:10 }}>{children}</div>;
 }
